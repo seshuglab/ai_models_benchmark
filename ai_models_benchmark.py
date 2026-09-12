@@ -872,9 +872,9 @@ def run(spinner, argv_model="", argv_test=0):
 
 
 def main():
-    argv_model, argv_test = read_arguments()
     with Spinner(SHOW_SPINNER) as spinner:
         try:
+            argv_model, argv_test = read_arguments()
             run(spinner, argv_model, argv_test)
         except Exception as error:
             spinner.write(f"\nОШИБКА: {error}")

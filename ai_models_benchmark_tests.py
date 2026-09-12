@@ -257,6 +257,21 @@ class ReadArgumentsTests(unittest.TestCase):
                     with self.assertRaises(SystemExit):
                         benchmark.read_arguments()
 
+    def test_main_waits_for_enter_after_invalid_arguments(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "model"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+        ):
+            with self.assertRaises(SystemExit):
+                benchmark.main()
+
+        spinner.input.assert_called_once_with(benchmark.EXIT_PROMPT)
+
 
 class ProviderFlowIntegrationTests(unittest.TestCase):
     ollama_model = {
