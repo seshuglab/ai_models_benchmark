@@ -223,7 +223,23 @@ def choose_number(count, choice, spinner):
     return None
 
 
-def read_arguments():
+def show_help(spinner):
+    spinner.write(
+        "Использование:\n"
+        "  python ai_models_benchmark.py\n"
+        "  python ai_models_benchmark.py <модель> <номер теста>\n\n"
+        "Параметры:\n"
+        "  --help                  Показать справку\n"
+        "  --no-spinner            Отключить спиннер\n"
+        "  --opencode-json-log     Сохранять JSON-события OpenCode"
+    )
+
+
+def read_arguments(spinner):
+    if "--help" in sys.argv:
+        show_help(spinner)
+        raise SystemExit
+
     arguments = [argument for argument in sys.argv[1:] if not argument.startswith("--")]
     if not arguments:
         return "", 0
@@ -233,7 +249,9 @@ def read_arguments():
         or not arguments[1].isdigit()
         or int(arguments[1]) < 1
     ):
-        raise SystemExit("Укажите модель и номер теста.")
+        spinner.write("Укажите модель и номер теста.\n")
+        show_help(spinner)
+        raise SystemExit
     return arguments[0], int(arguments[1])
 
 
@@ -874,7 +892,7 @@ def run(spinner, argv_model="", argv_test=0):
 def main():
     with Spinner(SHOW_SPINNER) as spinner:
         try:
-            argv_model, argv_test = read_arguments()
+            argv_model, argv_test = read_arguments(spinner)
             run(spinner, argv_model, argv_test)
         except Exception as error:
             spinner.write(f"\nОШИБКА: {error}")

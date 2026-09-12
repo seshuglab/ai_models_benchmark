@@ -245,20 +245,34 @@ class RunTests(unittest.TestCase):
 
 class ReadArgumentsTests(unittest.TestCase):
     def test_reads_model_and_test(self):
+        spinner = Mock()
         with patch.object(
             benchmark.sys, "argv", ["benchmark.py", "model", "7"]
         ):
-            self.assertEqual(benchmark.read_arguments(), ("model", 7))
+            self.assertEqual(benchmark.read_arguments(spinner), ("model", 7))
 
     def test_rejects_invalid_arguments(self):
+        spinner = Mock()
         for arguments in (["model"], ["model", "x"], ["model", "0"]):
             with self.subTest(arguments=arguments):
+                spinner.reset_mock()
                 with patch.object(benchmark.sys, "argv", ["benchmark.py", *arguments]):
                     with self.assertRaises(SystemExit):
-                        benchmark.read_arguments()
+                        benchmark.read_arguments(spinner)
+                spinner.write.assert_any_call("Укажите модель и номер теста.\n")
+
+    def test_shows_help(self):
+        spinner = Mock()
+        with patch.object(benchmark.sys, "argv", ["benchmark.py", "--help"]):
+            with self.assertRaises(SystemExit):
+                benchmark.read_arguments(spinner)
+        self.assertIn("Использование:", spinner.write.call_args.args[0])
 
     def test_main_waits_for_enter_after_invalid_arguments(self):
         spinner = Mock()
+        spinner.input.side_effect = lambda _: spinner.write.assert_any_call(
+            "Укажите модель и номер теста.\n"
+        )
         spinner_context = Mock()
         spinner_context.__enter__ = Mock(return_value=spinner)
         spinner_context.__exit__ = Mock(return_value=False)
