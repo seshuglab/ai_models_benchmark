@@ -413,7 +413,7 @@ def run_ollama_api_test(provider, model, prompt, test_file, spinner):
 
     start_time = time.perf_counter()
     first_token_time = None
-    full_response = ""
+    response_parts = []
     final_chunk = {}
 
     try:
@@ -424,7 +424,7 @@ def run_ollama_api_test(provider, model, prompt, test_file, spinner):
                 if text:
                     if first_token_time is None:
                         first_token_time = time.perf_counter()
-                    full_response += text
+                    response_parts.append(text)
                     spinner.write(text, end="")
                 if chunk.get("done"):
                     final_chunk = chunk
@@ -452,7 +452,7 @@ def run_ollama_api_test(provider, model, prompt, test_file, spinner):
             if final_chunk.get("load_duration") is not None
             else None
         ),
-        "response": full_response,
+        "response": "".join(response_parts),
     }
 
 
