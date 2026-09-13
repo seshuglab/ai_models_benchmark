@@ -872,43 +872,43 @@ def run(spinner, argv_model="", argv_test=0):
                     )
                 start_number += len(provider_models)
 
-        if argv_model:
-            model_number = int(argv_model) if argv_model.isdigit() else None
+        model = None
+        while model is None:
+            choice = argv_model or spinner.input(lang("choose_model")).strip()
+            if not argv_model and choice.lower() == "r":
+                spinner.write(f"\n{searching_models}")
+                provider_results, models, provider_width = find_models()
+                if not models:
+                    spinner.write(lang("no_models"))
+                    return
+                break
+
+            model_number = int(choice) if choice.isdigit() else None
             matches = [
                 index
                 for index, item in enumerate(models)
                 if model_number == index + 1
                 or (
                     model_number is None
-                    and item["name"].casefold() == argv_model.casefold()
+                    and item["name"].casefold() == choice.casefold()
                 )
             ]
             if not matches:
-                spinner.write(lang("model_not_found", model=argv_model))
-                return
-            if len(matches) > 1:
-                spinner.write(
-                    lang(
-                        "duplicate_model",
-                        model=argv_model,
-                        count=len(matches),
-                    )
-                )
-                return
-            model_index = matches[0]
-        else:
-            choice = spinner.input(lang("choose_model")).strip()
-            if choice.lower() == "r":
-                spinner.write(f"\n{searching_models}")
-                provider_results, models, provider_width = find_models()
-                if not models:
-                    spinner.write(lang("no_models"))
+                spinner.write(lang("model_not_found", model=choice))
+                if argv_model:
                     return
                 continue
-            model_index = choose_number(len(models), choice, spinner)
-        if model_index is None:
-            return
-        model = models[model_index]
+            if len(matches) > 1:
+                spinner.write(
+                    lang("duplicate_model", model=choice, count=len(matches))
+                )
+                if argv_model:
+                    return
+                continue
+            model = models[matches[0]]
+
+        if model is None:
+            continue
 
         provider = PROVIDERS[model["source"]]
         protocol = PROTOCOLS[provider["protocol"]]
@@ -933,16 +933,20 @@ def run(spinner, argv_model="", argv_test=0):
             selected_tests = [tests[argv_test - 1]]
             break
 
-        choice = spinner.input(lang("choose_test")).strip()
+        while True:
+            choice = spinner.input(lang("choose_test")).strip()
+            if choice == "0":
+                break
+            if choice.lower() == "x":
+                selected_tests = tests
+                break
+            test_index = choose_number(len(tests), choice, spinner)
+            if test_index is not None:
+                selected_tests = [tests[test_index]]
+                break
+
         if choice == "0":
             continue
-        if choice.lower() == "x":
-            selected_tests = tests
-        else:
-            test_index = choose_number(len(tests), choice, spinner)
-            if test_index is None:
-                return
-            selected_tests = [tests[test_index]]
 
         break
 

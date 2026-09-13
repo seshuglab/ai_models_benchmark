@@ -90,7 +90,7 @@ python ai_models_benchmark.py --opencode-json-log
 
 The regular text report contains a compact log of the events reported by OpenCode. With `--opencode-json-log`, a matching `.log` file containing raw JSON events is created next to the report. If OpenCode fails, metrics already received from completed steps are preserved; with diagnostics enabled, the partial JSON log is preserved as well.
 
-In interactive mode, enter `0` in the task menu to return to model selection without searching the providers again. Long lists use leading zeroes, and such numbers are also accepted as input. Pressing `Ctrl+C` during a task series preserves existing reports and shows the number of completed tasks.
+In interactive mode, select a model by number or exact case-insensitive name; an unknown or ambiguous value returns to the prompt. An invalid task value also repeats its prompt. Enter `R` to search the providers again and refresh the list, or `0` in the task menu to return to model selection without another search. Long lists use leading zeroes, and such numbers are also accepted as input. Pressing `Ctrl+C` during a task series preserves existing reports and shows the number of completed tasks.
 
 The ready-made Windows build does not require a separately installed Python. Download the ZIP for the required version, extract it completely, and run:
 

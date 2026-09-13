@@ -245,6 +245,17 @@ class RunTests(unittest.TestCase):
         run_test.assert_called_once()
         save_report.assert_called_once()
 
+    def test_interactive_selection_retries_invalid_test(self):
+        spinner, _, _, _, run_test, _ = self.run_with_test_choice(
+            "1", input_values=["1", "missing", "7", "1"]
+        )
+
+        spinner.write.assert_has_calls(
+            [call("\nНеверный номер."), call("\nНеверный номер.")]
+        )
+        self.assertEqual(spinner.input.call_count, 4)
+        run_test.assert_called_once()
+
     def test_r_refreshes_models_before_selection(self):
         with patch.object(benchmark, "set_window_title") as set_title:
             spinner, _, _, _, run_test, _ = self.run_with_test_choice(
@@ -256,6 +267,36 @@ class RunTests(unittest.TestCase):
         titles = [item.args[0] for item in set_title.call_args_list]
         self.assertEqual(spinner.input.call_count, 3)
         self.assertEqual(titles.count(searching), 2)
+        run_test.assert_called_once()
+
+    def test_interactive_selection_accepts_model_name(self):
+        _, _, _, _, run_test, _ = self.run_with_test_choice(
+            "1", input_values=["TEST-MODEL", "1"]
+        )
+
+        run_test.assert_called_once()
+
+    def test_interactive_selection_retries_unknown_model(self):
+        spinner, _, _, _, run_test, _ = self.run_with_test_choice(
+            "1", input_values=["missing", "test-model", "1"]
+        )
+
+        spinner.write.assert_any_call("\nМодель не найдена: missing")
+        self.assertEqual(spinner.input.call_count, 3)
+        run_test.assert_called_once()
+
+    def test_interactive_selection_retries_duplicate_name(self):
+        models = [
+            {"source": "ollama", "name": "same", "full_name": "first"},
+            {"source": "ollama", "name": "same", "full_name": "second"},
+        ]
+        spinner, _, _, prepare_model, run_test, _ = self.run_with_test_choice(
+            "1", input_values=["same", "1", "1"], available_models=models
+        )
+
+        spinner.write.assert_any_call("\nМоделей с именем same найдено: 2")
+        self.assertEqual(spinner.input.call_count, 3)
+        prepare_model.assert_called_once()
         run_test.assert_called_once()
 
     def test_arguments_select_model_by_number_or_name(self):
@@ -1023,9 +1064,9 @@ class LangFunctionTests(unittest.TestCase):
 
     def test_returns_current_language_text(self):
         languages.set_language("ru")
-        self.assertEqual(languages.lang("invalid_number"), "Неверный номер.")
+        self.assertEqual(languages.lang("invalid_number"), "\nНеверный номер.")
         languages.set_language("en")
-        self.assertEqual(languages.lang("invalid_number"), "Invalid number.")
+        self.assertEqual(languages.lang("invalid_number"), "\nInvalid number.")
 
     def test_selection_prompts_are_visually_marked(self):
         for language in ("ru", "en"):

@@ -37,7 +37,7 @@ LANGUAGES = {
         "load_model": "Загрузка модели",
         "sec": "сек",
         "speed_unit": "токен/сек",
-        "invalid_number": "Неверный номер.",
+        "invalid_number": "\nНеверный номер.",
         "help_text": (
             "Использование:\n"
             "  python ai_models_benchmark.py\n"
@@ -76,7 +76,7 @@ LANGUAGES = {
         "report_answer": "\n# ОТВЕТ МОДЕЛИ:\n",
         "model_not_found": "\nМодель не найдена: {model}",
         "duplicate_model": "\nМоделей с именем {model} найдено: {count}",
-        "choose_model": "\n> Выбери номер модели, [R] — обновить список: ",
+        "choose_model": "\n> Выбери номер или имя модели, [R] — обновить список: ",
         "choose_test": "\n> Выбери номер теста, [X] — все тесты, [0] — назад: ",
         "available_tests": "\nДоступные тесты:\n",
         "selected_model": "\nВыбранная модель: {source} — {name} ({location})",
@@ -121,7 +121,7 @@ LANGUAGES = {
         "load_model": "Model load",
         "sec": "s",
         "speed_unit": "tokens/s",
-        "invalid_number": "Invalid number.",
+        "invalid_number": "\nInvalid number.",
         "help_text": (
             "Usage:\n"
             "  python ai_models_benchmark.py\n"
@@ -160,7 +160,7 @@ LANGUAGES = {
         "report_answer": "\n# MODEL ANSWER:\n",
         "model_not_found": "\nModel not found: {model}",
         "duplicate_model": "\nModels named {model} found: {count}",
-        "choose_model": "\n> Choose a model number, [R] - refresh the list: ",
+        "choose_model": "\n> Choose a model number or name, [R] - refresh the list: ",
         "choose_test": "\n> Choose a test number, [X] - all tests, [0] - back: ",
         "available_tests": "\nAvailable tests:\n",
         "selected_model": "\nSelected model: {source} - {name} ({location})",
