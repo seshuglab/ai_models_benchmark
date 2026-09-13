@@ -177,6 +177,8 @@ class RunTests(unittest.TestCase):
         )
         self.assertEqual(run_test.call_count, len(tests))
         self.assertEqual(save_report.call_count, len(tests))
+        spinner.write.assert_any_call("\nТест [1/2]: Первый тест\n")
+        spinner.write.assert_any_call("\nТест [2/2]: Второй тест\n")
         spinner.write.assert_any_call("Пройдено тестов: 2")
 
     def test_header_uses_search_text_width(self):
@@ -204,6 +206,14 @@ class RunTests(unittest.TestCase):
         self.assertIn("test-model", titles[2])
         self.assertIn("1", titles[2])
 
+    def test_window_title_shows_batch_progress(self):
+        with patch.object(benchmark, "set_window_title") as set_title:
+            self.run_with_test_choice("X")
+
+        titles = [item.args[0] for item in set_title.call_args_list]
+        self.assertIn("1/2", titles[2])
+        self.assertIn("2/2", titles[3])
+
     def test_number_runs_only_selected_test(self):
         spinner, model, tests, _, run_test, save_report = self.run_with_test_choice("2")
 
@@ -213,6 +223,7 @@ class RunTests(unittest.TestCase):
         save_report.assert_called_once_with(
             run_test.return_value, tests[1][0], tests[1][1], tests[1][2]
         )
+        spinner.write.assert_any_call("\nТест: Второй тест\n")
         spinner.write.assert_any_call("Пройдено тестов: 1")
 
     def test_interruption_stops_batch_and_shows_completed_count(self):

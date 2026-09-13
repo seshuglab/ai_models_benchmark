@@ -938,18 +938,32 @@ def run(spinner, argv_model="", argv_test=0):
 
     completed_tests = 0
     failed = False
+    selected_count = len(selected_tests)
     try:
-        for test_file, test_title, prompt in selected_tests:
+        for position, (test_file, test_title, prompt) in enumerate(selected_tests, 1):
             test_number = tests.index((test_file, test_title, prompt)) + 1
+            title_number = (
+                f"{position}/{selected_count}" if selected_count > 1 else test_number
+            )
             set_window_title(
                 lang(
                     "window_test",
                     program=program_title,
                     model=model["name"],
-                    test=test_number,
+                    test=title_number,
                 )
             )
-            spinner.write(lang("test_header", title=test_title))
+            if selected_count > 1:
+                spinner.write(
+                    lang(
+                        "test_progress",
+                        position=position,
+                        total=selected_count,
+                        title=test_title,
+                    )
+                )
+            else:
+                spinner.write(lang("test_header", title=test_title))
 
             result = protocol["run"](provider, model, prompt, test_file, spinner)
             failed = failed or "error" in result
