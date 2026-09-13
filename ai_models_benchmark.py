@@ -814,11 +814,12 @@ def run(spinner, argv_model="", argv_test=0):
     with ThreadPoolExecutor() as executor:
         provider_results = list(executor.map(check_provider, PROVIDERS.items()))
     provider_results.sort(key=lambda result: result[2])
+    provider_width = max(len(provider["title"]) for provider in PROVIDERS.values())
 
     for provider_id, provider, found, _ in provider_results:
         if not found:
             spinner.write(
-                f"\n{provider['title']:<10}- "
+                f"\n{provider['title'].ljust(provider_width)} — "
                 f"{provider_unavailable(provider_id)}"
             )
 
@@ -841,7 +842,7 @@ def run(spinner, argv_model="", argv_test=0):
                 spinner.write(
                     lang(
                         "provider_models",
-                        title=provider["title"],
+                        title=provider["title"].ljust(provider_width),
                         count=len(provider_models),
                         location=location_label(provider["location"]),
                     )

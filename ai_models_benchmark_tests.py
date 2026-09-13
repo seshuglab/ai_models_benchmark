@@ -938,6 +938,29 @@ class LanguageTableTests(unittest.TestCase):
 
 
 class LangFunctionTests(unittest.TestCase):
+    def test_provider_header_does_not_require_plural_forms(self):
+        languages.set_language("ru")
+        self.assertEqual(
+            languages.lang(
+                "provider_models",
+                title="Ollama   ",
+                count=1,
+                location="локально",
+            ),
+            "\nOllama    — моделей: 1 (локально)",
+        )
+        languages.set_language("en")
+        self.assertEqual(
+            languages.lang(
+                "provider_models",
+                title="OpenCode ",
+                count=52,
+                location="cloud",
+            ),
+            "\nOpenCode  — models: 52 (cloud)",
+        )
+        languages.set_language("ru")
+
     def test_returns_current_language_text(self):
         languages.set_language("ru")
         self.assertEqual(languages.lang("invalid_number"), "Неверный номер.")
