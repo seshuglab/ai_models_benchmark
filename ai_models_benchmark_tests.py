@@ -168,6 +168,17 @@ class RunTests(unittest.TestCase):
         self.assertEqual(save_report.call_count, len(tests))
         spinner.write.assert_any_call("Пройдено тестов: 2")
 
+    def test_header_uses_search_text_width(self):
+        spinner, *_ = self.run_with_test_choice("1")
+        title = f"AI MODELS BENCHMARK v{benchmark.VERSION}"
+        searching_models = languages.lang("searching_models")
+
+        self.assertEqual(spinner.write.call_args_list[0], call(title))
+        self.assertEqual(
+            spinner.write.call_args_list[1], call("─" * len(searching_models))
+        )
+        self.assertEqual(spinner.write.call_args_list[2], call(searching_models))
+
     def test_number_runs_only_selected_test(self):
         spinner, model, tests, _, run_test, save_report = self.run_with_test_choice("2")
 

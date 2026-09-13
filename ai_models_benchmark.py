@@ -800,9 +800,11 @@ def save_report(result, test_file, test_title, prompt):
 
 
 def run(spinner, argv_model="", argv_test=0):
-    spinner.write(f"AI MODELS BENCHMARK v{VERSION}")
-    spinner.write("=" * 60)
-    spinner.write(lang("searching_models"))
+    title = f"AI MODELS BENCHMARK v{VERSION}"
+    searching_models = lang("searching_models")
+    spinner.write(title)
+    spinner.write("─" * len(searching_models))
+    spinner.write(searching_models)
 
     def check_provider(item):
         provider_id, provider = item
