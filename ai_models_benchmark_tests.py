@@ -733,7 +733,7 @@ class WriteModelGridTests(unittest.TestCase):
 
         self.assertEqual(
             spinner.write.call_args_list,
-            [call("08 - one      09 - two"), call("10 - three")],
+            [call("[08] one      [09] two"), call("[10] three")],
         )
 
 
@@ -977,6 +977,14 @@ class LangFunctionTests(unittest.TestCase):
         self.assertEqual(languages.lang("invalid_number"), "Неверный номер.")
         languages.set_language("en")
         self.assertEqual(languages.lang("invalid_number"), "Invalid number.")
+
+    def test_selection_prompts_are_visually_marked(self):
+        for language in ("ru", "en"):
+            with self.subTest(language=language):
+                languages.set_language(language)
+                self.assertTrue(languages.lang("choose_model").startswith("\n> "))
+                self.assertTrue(languages.lang("choose_test").startswith("\n> "))
+        languages.set_language("ru")
 
     def test_unknown_key_raises_without_fallback(self):
         languages.set_language("ru")

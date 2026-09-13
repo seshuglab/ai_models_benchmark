@@ -223,7 +223,7 @@ def format_list_number(number, count):
 
 def write_model_grid(models, start_number, total_count, spinner):
     cells = [
-        f"{format_list_number(number, total_count)} - {model['name']}"
+        f"[{format_list_number(number, total_count)}] {model['name']}"
         for number, model in enumerate(models, start_number)
     ]
     cell_width = max(map(len, cells)) + 4
@@ -901,7 +901,7 @@ def run(spinner, argv_model="", argv_test=0):
 
         spinner.write(lang("available_tests"))
         for number, (_, title, _) in enumerate(tests, start=1):
-            spinner.write(f"{format_list_number(number, len(tests))} - {title}")
+            spinner.write(f"[{format_list_number(number, len(tests))}] {title}")
 
         if argv_test:
             if argv_test > len(tests):
