@@ -245,6 +245,19 @@ class RunTests(unittest.TestCase):
         run_test.assert_called_once()
         save_report.assert_called_once()
 
+    def test_r_refreshes_models_before_selection(self):
+        with patch.object(benchmark, "set_window_title") as set_title:
+            spinner, _, _, _, run_test, _ = self.run_with_test_choice(
+                "1", input_values=["r", "1", "1"]
+            )
+
+        program = f"AI MODELS BENCHMARK v{benchmark.VERSION}"
+        searching = languages.lang("window_searching", program=program)
+        titles = [item.args[0] for item in set_title.call_args_list]
+        self.assertEqual(spinner.input.call_count, 3)
+        self.assertEqual(titles.count(searching), 2)
+        run_test.assert_called_once()
+
     def test_arguments_select_model_by_number_or_name(self):
         for model_value in ("1", "test-model"):
             with self.subTest(model=model_value):

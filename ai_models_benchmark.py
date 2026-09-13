@@ -809,34 +809,39 @@ def save_report(result, test_file, test_title, prompt):
 def run(spinner, argv_model="", argv_test=0):
     program_title = f"AI MODELS BENCHMARK v{VERSION}"
     searching_models = lang("searching_models")
-    set_window_title(lang("window_searching", program=program_title))
     spinner.write(program_title)
     spinner.write("─" * len(searching_models))
     spinner.write(searching_models)
 
-    def check_provider(item):
-        provider_id, provider = item
-        found, models = PROTOCOLS[provider["protocol"]]["get_models"](
-            provider_id, provider
-        )
-        return provider_id, provider, found, models
+    def find_models():
+        set_window_title(lang("window_searching", program=program_title))
 
-    with ThreadPoolExecutor() as executor:
-        provider_results = list(executor.map(check_provider, PROVIDERS.items()))
-    set_window_title(program_title)
-    provider_results.sort(key=lambda result: result[2])
-    provider_width = max(len(provider["title"]) for provider in PROVIDERS.values())
-
-    for provider_id, provider, found, _ in provider_results:
-        if not found:
-            spinner.write(
-                f"\n{provider['title'].ljust(provider_width)} — "
-                f"{provider_unavailable(provider_id)}"
+        def check_provider(item):
+            provider_id, provider = item
+            found, models = PROTOCOLS[provider["protocol"]]["get_models"](
+                provider_id, provider
             )
+            return provider_id, provider, found, models
 
-    models = list(itertools.chain.from_iterable(
-        found_models for _, _, found, found_models in provider_results if found
-    ))
+        with ThreadPoolExecutor() as executor:
+            results = list(executor.map(check_provider, PROVIDERS.items()))
+        set_window_title(program_title)
+        results.sort(key=lambda result: result[2])
+        width = max(len(provider["title"]) for provider in PROVIDERS.values())
+
+        for provider_id, provider, found, _ in results:
+            if not found:
+                spinner.write(
+                    f"\n{provider['title'].ljust(width)} — "
+                    f"{provider_unavailable(provider_id)}"
+                )
+
+        found_models = list(itertools.chain.from_iterable(
+            models for _, _, found, models in results if found
+        ))
+        return results, found_models, width
+
+    provider_results, models, provider_width = find_models()
     if not models:
         spinner.write(lang("no_models"))
         return
@@ -889,9 +894,15 @@ def run(spinner, argv_model="", argv_test=0):
                 return
             model_index = matches[0]
         else:
-            model_index = choose_number(
-                len(models), spinner.input(lang("choose_model")), spinner
-            )
+            choice = spinner.input(lang("choose_model")).strip()
+            if choice.lower() == "r":
+                spinner.write(f"\n{searching_models}")
+                provider_results, models, provider_width = find_models()
+                if not models:
+                    spinner.write(lang("no_models"))
+                    return
+                continue
+            model_index = choose_number(len(models), choice, spinner)
         if model_index is None:
             return
         model = models[model_index]
