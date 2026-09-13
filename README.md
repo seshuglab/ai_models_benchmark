@@ -1,4 +1,4 @@
-# AI Models Benchmark v0.9i
+# AI Models Benchmark v0.9j
 
 Консольный инструмент для одинакового тестирования локальных моделей Ollama и LM Studio, а также облачных AI-агентов через OpenCode CLI.
 
@@ -131,7 +131,7 @@ python -m pip install pyinstaller
 
 Правила независимой оценки и допустимые источники доказательств описаны в [руководстве оценщика](ai_models_benchmark_evaluator_guide.md), а назначение, сильные стороны и ограничения каждого задания — в [анализе тестового набора](ai_models_benchmark_tests_analysis.md).
 
-## Проверка
+## Проверка проекта
 
 ```text
 python ai_models_benchmark_tests.py

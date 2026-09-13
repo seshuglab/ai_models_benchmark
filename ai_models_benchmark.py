@@ -19,7 +19,7 @@ from ai_models_benchmark_languages import (
 )
 
 
-VERSION = "0.9i"
+VERSION = "0.9j"
 PROGRAM_DIR = Path(
     sys.executable if getattr(sys, "frozen", False) else __file__
 ).resolve().parent
