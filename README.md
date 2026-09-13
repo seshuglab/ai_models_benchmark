@@ -1,4 +1,4 @@
-# AI Models Benchmark v0.9j
+# AI Models Benchmark v0.9k
 
 :ru: Русский | [:uk: English](README_EN.md)
 
