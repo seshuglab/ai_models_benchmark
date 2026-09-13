@@ -810,9 +810,26 @@ def save_report(result, test_file, test_title, prompt):
 def run(spinner, argv_model="", argv_test=0):
     program_title = f"AI MODELS BENCHMARK v{VERSION}"
     searching_models = lang("searching_models")
-    spinner.write(program_title)
-    spinner.write("─" * len(searching_models))
-    spinner.write(searching_models)
+    header = [
+        program_title,
+        "─" * len(searching_models),
+        searching_models,
+    ]
+    banner = [
+        "┌─ .agent_work ────────────────────────────────────────────────┐",
+        "│ TEST > MODEL > TOOLS > REPORT ? TOKENS [###..] ? [PASS] ===> │",
+        "└──────────────────────────────────────────────────────────────┘",
+    ]
+    terminal_width = shutil.get_terminal_size((120, 24)).columns
+    header_width = max(map(len, header)) + 4
+    free_width = terminal_width - header_width - 2
+    if len(banner[0]) <= free_width:
+        banner_position = header_width + (free_width - len(banner[0])) // 2
+        for text, art in zip(header, banner):
+            spinner.write(text.ljust(banner_position) + art)
+    else:
+        for text in header:
+            spinner.write(text)
 
     def find_models():
         set_window_title(lang("window_searching", program=program_title))

@@ -122,6 +122,7 @@ class RunTests(unittest.TestCase):
         argv_model="",
         argv_test=0,
         available_models=None,
+        terminal_width=80,
     ):
         languages.set_language("ru")
         spinner = Mock()
@@ -160,6 +161,11 @@ class RunTests(unittest.TestCase):
             patch.object(benchmark, "print_result"),
             patch.object(benchmark, "save_report", return_value="report.txt") as save_report,
             patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+            patch.object(
+                benchmark.shutil,
+                "get_terminal_size",
+                return_value=Mock(columns=terminal_width),
+            ),
         ):
             if run_side_effect is not None:
                 run_test.side_effect = run_side_effect
@@ -191,6 +197,24 @@ class RunTests(unittest.TestCase):
             spinner.write.call_args_list[1], call("─" * len(searching_models))
         )
         self.assertEqual(spinner.write.call_args_list[2], call(searching_models))
+
+    def test_wide_header_shows_benchmark_banner(self):
+        spinner, *_ = self.run_with_test_choice("1", terminal_width=120)
+
+        header = "\n".join(item.args[0] for item in spinner.write.call_args_list[:3])
+        self.assertIn("┌─ .agent_work", header)
+        self.assertIn("TEST > MODEL > TOOLS > REPORT", header)
+        self.assertIn("[PASS] ===>", header)
+        first_line = spinner.write.call_args_list[0].args[0]
+        banner_position = first_line.index("┌")
+        banner_width = len(first_line) - banner_position
+        header_width = max(
+            len(f"AI MODELS BENCHMARK v{benchmark.VERSION}"),
+            len(languages.lang("searching_models")),
+        ) + 4
+        left_space = banner_position - header_width
+        right_space = 120 - 2 - banner_position - banner_width
+        self.assertLessEqual(abs(left_space - right_space), 1)
 
     def test_window_title_shows_progress(self):
         with patch.object(benchmark, "set_window_title") as set_title:
