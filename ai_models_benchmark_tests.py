@@ -782,7 +782,7 @@ class WriteModelGridTests(unittest.TestCase):
 
         self.assertEqual(
             spinner.write.call_args_list,
-            [call("[08] one      [09] two"), call("[10] three")],
+            [call("  [08] one    [09] two"), call("  [10] three")],
         )
 
 
@@ -1007,7 +1007,7 @@ class LangFunctionTests(unittest.TestCase):
                 count=1,
                 location="локально",
             ),
-            "\nOllama    — моделей: 1 (локально)",
+            "\nOllama    — моделей: 1 (локально)\n",
         )
         languages.set_language("en")
         self.assertEqual(
@@ -1017,7 +1017,7 @@ class LangFunctionTests(unittest.TestCase):
                 count=52,
                 location="cloud",
             ),
-            "\nOpenCode  — models: 52 (cloud)",
+            "\nOpenCode  — models: 52 (cloud)\n",
         )
         languages.set_language("ru")
 

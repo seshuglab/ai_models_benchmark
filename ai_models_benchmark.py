@@ -233,10 +233,11 @@ def write_model_grid(models, start_number, total_count, spinner):
         f"[{format_list_number(number, total_count)}] {model['name']}"
         for number, model in enumerate(models, start_number)
     ]
-    cell_width = max(map(len, cells)) + 4
-    columns = max(1, shutil.get_terminal_size((120, 24)).columns // cell_width)
+    cell_width = max(map(len, cells)) + 2
+    terminal_width = shutil.get_terminal_size((120, 24)).columns - 2
+    columns = max(1, terminal_width // cell_width)
     for row in range(0, len(cells), columns):
-        spinner.write("".join(
+        spinner.write("  " + "".join(
             cell.ljust(cell_width) for cell in cells[row:row + columns]
         ).rstrip())
 
@@ -829,12 +830,14 @@ def run(spinner, argv_model="", argv_test=0):
         results.sort(key=lambda result: result[2])
         width = max(len(provider["title"]) for provider in PROVIDERS.values())
 
-        for provider_id, provider, found, _ in results:
-            if not found:
-                spinner.write(
-                    f"\n{provider['title'].ljust(width)} — "
-                    f"{provider_unavailable(provider_id)}"
-                )
+        unavailable = [
+            f"{provider['title'].ljust(width)} — "
+            f"{provider_unavailable(provider_id)}"
+            for provider_id, provider, found, _ in results
+            if not found
+        ]
+        if unavailable:
+            spinner.write("\n" + "\n".join(unavailable))
 
         found_models = list(itertools.chain.from_iterable(
             models for _, _, found, models in results if found
@@ -921,7 +924,7 @@ def run(spinner, argv_model="", argv_test=0):
 
         spinner.write(lang("available_tests"))
         for number, (_, title, _) in enumerate(tests, start=1):
-            spinner.write(f"[{format_list_number(number, len(tests))}] {title}")
+            spinner.write(f"  [{format_list_number(number, len(tests))}] {title}")
 
         if argv_test:
             if argv_test > len(tests):
