@@ -1,5 +1,7 @@
 # AI Models Benchmark v0.9j
 
+:ru: Русский | [:uk: English](README_EN.md)
+
 Консольный инструмент для одинакового тестирования локальных моделей Ollama и LM Studio, а также облачных AI-агентов через OpenCode CLI.
 
 ![Интерфейс AI Models Benchmark](preview.gif)
