@@ -1,3 +1,4 @@
+import ctypes
 import itertools
 import json
 import shutil
@@ -26,6 +27,12 @@ PROGRAM_DIR = Path(
 SHOW_SPINNER = "--no-spinner" not in sys.argv
 SPINNER_FRAMES = "|/-\\"
 SAVE_AGENT_JSON_LOG = "--opencode-json-log" in sys.argv
+
+
+def set_window_title(title):
+    if sys.platform == "win32":
+        ctypes.windll.kernel32.SetConsoleTitleW(title)
+
 
 PROVIDERS = {
     "ollama": {
@@ -800,9 +807,10 @@ def save_report(result, test_file, test_title, prompt):
 
 
 def run(spinner, argv_model="", argv_test=0):
-    title = f"AI MODELS BENCHMARK v{VERSION}"
+    program_title = f"AI MODELS BENCHMARK v{VERSION}"
     searching_models = lang("searching_models")
-    spinner.write(title)
+    set_window_title(lang("window_searching", program=program_title))
+    spinner.write(program_title)
     spinner.write("─" * len(searching_models))
     spinner.write(searching_models)
 
@@ -815,6 +823,7 @@ def run(spinner, argv_model="", argv_test=0):
 
     with ThreadPoolExecutor() as executor:
         provider_results = list(executor.map(check_provider, PROVIDERS.items()))
+    set_window_title(program_title)
     provider_results.sort(key=lambda result: result[2])
     provider_width = max(len(provider["title"]) for provider in PROVIDERS.values())
 
@@ -928,11 +937,22 @@ def run(spinner, argv_model="", argv_test=0):
         prepare(provider, model, spinner)
 
     completed_tests = 0
+    failed = False
     try:
         for test_file, test_title, prompt in selected_tests:
+            test_number = tests.index((test_file, test_title, prompt)) + 1
+            set_window_title(
+                lang(
+                    "window_test",
+                    program=program_title,
+                    model=model["name"],
+                    test=test_number,
+                )
+            )
             spinner.write(lang("test_header", title=test_title))
 
             result = protocol["run"](provider, model, prompt, test_file, spinner)
+            failed = failed or "error" in result
 
             print_result(result, spinner)
             report_name = save_report(result, test_file, test_title, prompt)
@@ -940,7 +960,10 @@ def run(spinner, argv_model="", argv_test=0):
             completed_tests += 1
     except KeyboardInterrupt:
         spinner.write(lang("interrupted"))
-
+        set_window_title(program_title)
+    else:
+        state = "window_error" if failed else "window_completed"
+        set_window_title(lang(state, program=program_title))
     spinner.write(lang("final_model", name=model["name"]))
     spinner.write(lang("tests_completed", count=completed_tests))
 
@@ -961,6 +984,12 @@ def main():
         except KeyboardInterrupt:
             spinner.write(lang("interrupted"))
         except Exception as error:
+            set_window_title(
+                lang(
+                    "window_error",
+                    program=f"AI MODELS BENCHMARK v{VERSION}",
+                )
+            )
             spinner.write(f"\n{lang('error_label')}: {error}")
         finally:
             spinner.input(lang("exit_prompt"))

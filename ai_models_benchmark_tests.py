@@ -102,6 +102,17 @@ class SpinnerTests(unittest.TestCase):
                 self.assertEqual(output.getvalue(), "\r \r\n")
 
 
+class WindowTitleTests(unittest.TestCase):
+    def test_sets_windows_console_title(self):
+        with (
+            patch.object(benchmark.sys, "platform", "win32"),
+            patch.object(benchmark.ctypes, "windll") as windll,
+        ):
+            benchmark.set_window_title("Benchmark")
+
+        windll.kernel32.SetConsoleTitleW.assert_called_once_with("Benchmark")
+
+
 class RunTests(unittest.TestCase):
     def run_with_test_choice(
         self,
@@ -126,7 +137,7 @@ class RunTests(unittest.TestCase):
             ("01_test.md", "Первый тест", "prompt 1"),
             ("02_test.md", "Второй тест", "prompt 2"),
         ]
-        result = object()
+        result = {}
         prepare_model = Mock()
         run_test = Mock(return_value=result)
         protocol = {
@@ -179,6 +190,20 @@ class RunTests(unittest.TestCase):
         )
         self.assertEqual(spinner.write.call_args_list[2], call(searching_models))
 
+    def test_window_title_shows_progress(self):
+        with patch.object(benchmark, "set_window_title") as set_title:
+            self.run_with_test_choice("1")
+
+        program = f"AI MODELS BENCHMARK v{benchmark.VERSION}"
+        titles = [item.args[0] for item in set_title.call_args_list]
+        self.assertEqual(len(titles), 4)
+        self.assertTrue(
+            all(title.startswith(program) for title in titles), titles
+        )
+        self.assertEqual(titles[1], program)
+        self.assertIn("test-model", titles[2])
+        self.assertIn("1", titles[2])
+
     def test_number_runs_only_selected_test(self):
         spinner, model, tests, _, run_test, save_report = self.run_with_test_choice("2")
 
@@ -192,7 +217,7 @@ class RunTests(unittest.TestCase):
 
     def test_interruption_stops_batch_and_shows_completed_count(self):
         spinner, _, _, _, run_test, save_report = self.run_with_test_choice(
-            "X", [object(), KeyboardInterrupt]
+            "X", [{}, KeyboardInterrupt]
         )
 
         self.assertEqual(run_test.call_count, 2)
