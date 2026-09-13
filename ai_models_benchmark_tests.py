@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock, call, patch
 
 import ai_models_benchmark as benchmark
+import ai_models_benchmark_languages as languages
 
 
 class TerminalOutput(io.StringIO):
@@ -111,6 +112,7 @@ class RunTests(unittest.TestCase):
         argv_test=0,
         available_models=None,
     ):
+        languages.set_language("ru")
         spinner = Mock()
         spinner.input.side_effect = (
             input_values if input_values is not None else ["1", choice]
@@ -146,6 +148,7 @@ class RunTests(unittest.TestCase):
             patch.object(benchmark, "get_tests", return_value=tests),
             patch.object(benchmark, "print_result"),
             patch.object(benchmark, "save_report", return_value="report.txt") as save_report,
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
         ):
             if run_side_effect is not None:
                 run_test.side_effect = run_side_effect
@@ -244,10 +247,13 @@ class RunTests(unittest.TestCase):
 
 
 class ReadArgumentsTests(unittest.TestCase):
+    def setUp(self):
+        languages.set_language("ru")
+
     def test_reads_model_and_test(self):
         spinner = Mock()
         with patch.object(
-            benchmark.sys, "argv", ["benchmark.py", "model", "7"]
+            benchmark.sys, "argv", ["benchmark.py", "--ru", "model", "7"]
         ):
             self.assertEqual(benchmark.read_arguments(spinner), ("model", 7))
 
@@ -256,14 +262,18 @@ class ReadArgumentsTests(unittest.TestCase):
         for arguments in (["model"], ["model", "x"], ["model", "0"]):
             with self.subTest(arguments=arguments):
                 spinner.reset_mock()
-                with patch.object(benchmark.sys, "argv", ["benchmark.py", *arguments]):
+                with patch.object(
+                    benchmark.sys, "argv", ["benchmark.py", "--ru", *arguments]
+                ):
                     with self.assertRaises(SystemExit):
                         benchmark.read_arguments(spinner)
                 spinner.write.assert_any_call("Укажите модель и номер теста.\n")
 
     def test_shows_help(self):
         spinner = Mock()
-        with patch.object(benchmark.sys, "argv", ["benchmark.py", "--help"]):
+        with patch.object(
+            benchmark.sys, "argv", ["benchmark.py", "--ru", "--help"]
+        ):
             with self.assertRaises(SystemExit):
                 benchmark.read_arguments(spinner)
         self.assertIn("Использование:", spinner.write.call_args.args[0])
@@ -278,13 +288,31 @@ class ReadArgumentsTests(unittest.TestCase):
         spinner_context.__exit__ = Mock(return_value=False)
 
         with (
-            patch.object(benchmark.sys, "argv", ["benchmark.py", "model"]),
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru", "model"]),
             patch.object(benchmark, "Spinner", return_value=spinner_context),
         ):
             with self.assertRaises(SystemExit):
                 benchmark.main()
 
-        spinner.input.assert_called_once_with(benchmark.EXIT_PROMPT)
+        spinner.input.assert_called_once_with(
+            languages.lang("exit_prompt")
+        )
+
+    def test_main_handles_keyboard_interrupt_without_traceback(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--en"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.object(benchmark, "run", side_effect=KeyboardInterrupt),
+        ):
+            benchmark.main()
+
+        spinner.write.assert_called_once_with("\nExecution stopped by user.")
+        spinner.input.assert_called_once_with("\nPress Enter to exit...")
 
 
 class ProviderFlowIntegrationTests(unittest.TestCase):
@@ -304,7 +332,10 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         "full_name": "test/lm-model",
     }
 
-    def run_isolated(self, model_choice, provider_patch, timer_values):
+    def run_isolated(
+        self, model_choice, provider_patch, timer_values, lang_code="ru"
+    ):
+        languages.set_language(lang_code)
         spinner = Mock()
         spinner.input.side_effect = [model_choice, "1"]
         providers = {
@@ -354,6 +385,9 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                     benchmark.time, "perf_counter", side_effect=timer_values
                 ),
                 provider_patch,
+                patch.object(
+                    benchmark.sys, "argv", ["benchmark.py", f"--{lang_code}"]
+                ),
             ):
                 benchmark.run(spinner)
 
@@ -486,6 +520,9 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
 
 
 class LmStudioPreparationTests(unittest.TestCase):
+    def setUp(self):
+        languages.set_language("ru")
+
     model = {
         "source": "lmstudio",
         "name": "Selected Model",
@@ -579,6 +616,9 @@ class LmStudioModelsTests(unittest.TestCase):
         )
 
 class FormatNumberTests(unittest.TestCase):
+    def setUp(self):
+        languages.set_language("ru")
+
     def test_none_returns_unavailable(self):
         self.assertEqual(benchmark.format_number(None), "недоступно")
 
@@ -595,6 +635,9 @@ class FormatNumberTests(unittest.TestCase):
 
 
 class FormatCountTests(unittest.TestCase):
+    def setUp(self):
+        languages.set_language("ru")
+
     def test_none_returns_unavailable(self):
         self.assertEqual(benchmark.format_count(None), "недоступно")
 
@@ -616,6 +659,9 @@ class CalculateRateTests(unittest.TestCase):
 
 
 class PrintResultTests(unittest.TestCase):
+    def setUp(self):
+        languages.set_language("ru")
+
     def test_opencode_uses_agent_metric_labels(self):
         spinner = Mock()
         result = {
@@ -795,6 +841,655 @@ class AddOpencodeEventTests(unittest.TestCase):
             )
         self.assertEqual(event_log, ["[ОТВЕТ]\na\n\nb"])
         self.assertEqual(output.getvalue(), "\n[ОТВЕТ]\na\n\nb\n")
+
+
+class LanguageTableTests(unittest.TestCase):
+    def test_key_sets_match(self):
+        self.assertEqual(
+            set(languages.LANGUAGES["ru"]), set(languages.LANGUAGES["en"])
+        )
+
+    def test_missing_key_fails_with_language_and_key(self):
+        broken = {
+            "ru": dict(languages.LANGUAGES["ru"]),
+            "en": dict(languages.LANGUAGES["en"]),
+        }
+        broken["en"].pop("choose_model")
+        with patch.dict(languages.LANGUAGES, broken, clear=True):
+            with self.assertRaises(languages.LanguageError) as context:
+                languages.validate_languages()
+        message = str(context.exception)
+        self.assertIn("en", message)
+        self.assertIn("choose_model", message)
+
+    def test_broken_table_stops_main_scenario(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+        broken = {
+            "ru": dict(languages.LANGUAGES["ru"]),
+            "en": dict(languages.LANGUAGES["en"]),
+        }
+        broken["ru"].pop("searching_models")
+        get_models = Mock(return_value=(False, []))
+        with (
+            patch.dict(languages.LANGUAGES, broken, clear=True),
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.dict(
+                benchmark.PROTOCOLS,
+                {"ollama_api": {"get_models": get_models}},
+                clear=True,
+            ),
+        ):
+            with self.assertRaises(SystemExit):
+                benchmark.main()
+        get_models.assert_not_called()
+        self.assertIn("searching_models", spinner.input.call_args.args[0])
+        languages.set_language("ru")
+
+    def test_format_fields_mismatch_fails(self):
+        broken = {
+            "ru": {"greeting": "Привет, {name}"},
+            "en": {"greeting": "Hello, {username}"},
+        }
+        with patch.dict(languages.LANGUAGES, broken, clear=True):
+            with self.assertRaises(languages.LanguageError) as context:
+                languages.validate_languages()
+        self.assertIn("greeting", str(context.exception))
+
+    def test_missing_exit_prompt_finishes_without_traceback(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+        broken = {
+            "ru": dict(languages.LANGUAGES["ru"]),
+            "en": dict(languages.LANGUAGES["en"]),
+        }
+        broken["en"].pop("exit_prompt")
+        get_models = Mock(return_value=(True, []))
+        with (
+            patch.dict(languages.LANGUAGES, broken, clear=True),
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--en"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.dict(
+                benchmark.PROTOCOLS,
+                {"ollama_api": {"get_models": get_models}},
+                clear=True,
+            ),
+        ):
+            with self.assertRaises(SystemExit):
+                benchmark.main()
+        get_models.assert_not_called()
+        prompt = spinner.input.call_args.args[0]
+        self.assertIn("exit_prompt", prompt)
+        self.assertTrue(prompt.endswith("Press Enter to exit..."))
+        languages.set_language("ru")
+
+
+class LangFunctionTests(unittest.TestCase):
+    def test_returns_current_language_text(self):
+        languages.set_language("ru")
+        self.assertEqual(languages.lang("invalid_number"), "Неверный номер.")
+        languages.set_language("en")
+        self.assertEqual(languages.lang("invalid_number"), "Invalid number.")
+
+    def test_unknown_key_raises_without_fallback(self):
+        languages.set_language("ru")
+        with self.assertRaises(languages.LanguageError):
+            languages.lang("no_such_key")
+        languages.set_language("en")
+        with self.assertRaises(languages.LanguageError):
+            languages.lang("no_such_key")
+
+    def test_formatting_real_values(self):
+        languages.set_language("ru")
+        self.assertIn(
+            "test-model", languages.lang("loading_model", name="test-model")
+        )
+        self.assertIn("10", languages.lang("tests_completed", count=10))
+        self.assertIn("7", languages.lang("test_not_found", test=7))
+        self.assertIn(
+            "some/path", languages.lang("agent_work_dir", path="some/path")
+        )
+        languages.set_language("en")
+        self.assertIn(
+            "test-model", languages.lang("loading_model", name="test-model")
+        )
+        self.assertIn("oops", languages.lang("model_not_found", model="oops"))
+
+
+class LanguageSelectionTests(unittest.TestCase):
+    def test_ru_flag_forces_russian(self):
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+            patch.object(
+                languages.locale, "getdefaultlocale", return_value=("en_US", "UTF-8")
+            ),
+        ):
+            languages.init_language_from_argv()
+        self.assertEqual(languages.get_language(), "ru")
+
+    def test_en_flag_forces_english(self):
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--en"]),
+            patch.object(
+                languages.locale, "getdefaultlocale", return_value=("ru_RU", "UTF-8")
+            ),
+        ):
+            languages.init_language_from_argv()
+        self.assertEqual(languages.get_language(), "en")
+
+    def test_conflict_stops_scenario_without_provider_search(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+        get_models = Mock(return_value=(True, []))
+        protocol = {
+            "get_models": get_models,
+            "prepare": None,
+            "run": Mock(),
+            "metrics": "generation",
+        }
+        with (
+            patch.object(
+                benchmark.sys, "argv", ["benchmark.py", "--ru", "--en"]
+            ),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.dict(
+                benchmark.PROVIDERS,
+                {"ollama": benchmark.PROVIDERS["ollama"]},
+                clear=True,
+            ),
+            patch.dict(benchmark.PROTOCOLS, {"ollama_api": protocol}, clear=True),
+        ):
+            with self.assertRaises(SystemExit):
+                benchmark.main()
+        get_models.assert_not_called()
+        prompt = spinner.input.call_args.args[0]
+        self.assertIn("--ru", prompt)
+        self.assertIn("--en", prompt)
+        languages.set_language("ru")
+
+    def test_auto_russian_locale(self):
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py"]),
+            patch.object(
+                languages.locale, "getdefaultlocale", return_value=("ru_RU", "UTF-8")
+            ),
+        ):
+            languages.init_language_from_argv()
+        self.assertEqual(languages.get_language(), "ru")
+
+    def test_auto_english_locale(self):
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py"]),
+            patch.object(
+                languages.locale, "getdefaultlocale", return_value=("en_US", "UTF-8")
+            ),
+        ):
+            languages.init_language_from_argv()
+        self.assertEqual(languages.get_language(), "en")
+
+    def test_unknown_empty_broken_locale_selects_english(self):
+        for code in ("de_DE", None, ""):
+            with self.subTest(code=code):
+                with (
+                    patch.object(benchmark.sys, "argv", ["benchmark.py"]),
+                    patch.object(
+                        languages.locale,
+                        "getdefaultlocale",
+                        return_value=(code, "UTF-8"),
+                    ),
+                ):
+                    languages.init_language_from_argv()
+                self.assertEqual(languages.get_language(), "en")
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py"]),
+            patch.object(
+                languages.locale,
+                "getdefaultlocale",
+                side_effect=OSError("no locale"),
+            ),
+        ):
+            languages.init_language_from_argv()
+        self.assertEqual(languages.get_language(), "en")
+
+
+class LocalizedScenarioTests(unittest.TestCase):
+    def run_scenario(self, lang_code):
+        languages.set_language(lang_code)
+        spinner = Mock()
+        spinner.input.side_effect = ["1", "1"]
+        model = {
+            "source": "ollama",
+            "name": "test-model",
+            "full_name": "test-model",
+        }
+        tests = [("01_test.md", "Title", "prompt text")]
+        result = {
+            "source": "ollama",
+            "name": "test-model",
+            "first_token_seconds": 1,
+            "total_seconds": 4,
+            "tokens_per_second": 2,
+            "prompt_tokens": 10,
+            "tokens_generated": 2,
+            "load_seconds": 0.5,
+            "response": (
+                "Привет\n\nHello\n\n# Заголовок\n\n"
+                "    indented code\n\nline after blank"
+            ),
+        }
+        protocol = {
+            "get_models": Mock(return_value=(True, [model])),
+            "prepare": Mock(),
+            "run": Mock(return_value=result),
+            "metrics": "generation",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            (program_dir / "01_test.md").write_text(
+                "# Title\nprompt text", encoding="utf-8"
+            )
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.dict(
+                    benchmark.PROVIDERS,
+                    {"ollama": benchmark.PROVIDERS["ollama"]},
+                    clear=True,
+                ),
+                patch.dict(benchmark.PROTOCOLS, {"ollama_api": protocol}, clear=True),
+                patch.object(
+                    benchmark.sys, "argv", ["benchmark.py", f"--{lang_code}"]
+                ),
+            ):
+                benchmark.run(spinner)
+            reports = list(program_dir.glob("ai_test_*.txt"))
+            self.assertEqual(len(reports), 1)
+            content = reports[0].read_text(encoding="utf-8")
+            report_name = reports[0].name
+        return spinner, content, report_name
+
+    def test_full_russian_scenario(self):
+        spinner, content, _ = self.run_scenario("ru")
+        self.assertIn("Выбранная модель", self._written(spinner))
+        self.assertIn("Источник", content)
+        self.assertIn("МЕТРИКИ", content)
+        self.assertIn("ОТВЕТ МОДЕЛИ", content)
+        languages.set_language("ru")
+
+    def test_full_english_scenario(self):
+        spinner, content, _ = self.run_scenario("en")
+        written = self._written(spinner)
+        self.assertIn("Selected model", written)
+        self.assertIn("Source", content)
+        self.assertIn("METRICS", content)
+        self.assertIn("MODEL ANSWER", content)
+        for russian in ("Выбранная модель", "Источник:", "МЕТРИКИ", "ОТВЕТ МОДЕЛИ"):
+            self.assertNotIn(russian, written + content)
+        languages.set_language("ru")
+
+    def _written(self, spinner):
+        return "\n".join(
+            str(call.args[0]) for call in spinner.write.call_args_list
+        )
+
+    def test_model_answer_preserves_formatting(self):
+        _, content, _ = self.run_scenario("en")
+        expected = (
+            "Привет\n\nHello\n\n# Заголовок\n\n"
+            "    indented code\n\nline after blank"
+        )
+        self.assertIn(f"# MODEL ANSWER:\n{expected}\n", content)
+
+    def test_technical_data_not_translated(self):
+        spinner = Mock()
+        spinner.input.side_effect = ["1", "1"]
+        model = {
+            "source": "ollama",
+            "name": "MyModel-1.0",
+            "full_name": "MyModel-1.0",
+        }
+        tests = [("01_test.md", "Title", "prompt")]
+        result = dict(model)
+        result.update(
+            {
+                "first_token_seconds": 1,
+                "total_seconds": 2,
+                "tokens_per_second": 3,
+                "prompt_tokens": 4,
+                "tokens_generated": 5,
+                "load_seconds": 0.5,
+                "response": "answer",
+            }
+        )
+        protocol = {
+            "get_models": Mock(return_value=(True, [model])),
+            "prepare": Mock(),
+            "run": Mock(return_value=result),
+            "metrics": "generation",
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            (program_dir / "01_test.md").write_text(
+                "# Title\nprompt", encoding="utf-8"
+            )
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.dict(
+                    benchmark.PROVIDERS,
+                    {"ollama": benchmark.PROVIDERS["ollama"]},
+                    clear=True,
+                ),
+                patch.dict(benchmark.PROTOCOLS, {"ollama_api": protocol}, clear=True),
+                patch.object(benchmark.sys, "argv", ["benchmark.py", "--en"]),
+            ):
+                benchmark.run(spinner)
+            reports = list(program_dir.glob("ai_test_*.txt"))
+            self.assertEqual(len(reports), 1)
+            content = reports[0].read_text(encoding="utf-8")
+            self.assertIn("MyModel-1.0", content)
+            self.assertIn("ai_test_ollama_MyModel-1.0_01_test_", reports[0].name)
+        languages.set_language("ru")
+
+    def test_opencode_technical_data_not_translated(self):
+        languages.set_language("en")
+        try:
+            spinner = Mock()
+            model = {
+                "source": "opencode",
+                "name": "Technical",
+                "full_name": "provider/Technical-Model_1",
+            }
+            provider = dict(benchmark.PROVIDERS["opencode"])
+            events = [
+                {"type": "step_start"},
+                {
+                    "type": "tool_use",
+                    "part": {
+                        "tool": "my-tool",
+                        "state": {"status": "my-status", "title": "Did work"},
+                    },
+                },
+                {"type": "text", "text": "answer"},
+                {
+                    "type": "step_finish",
+                    "tokens": {"input": 1, "output": 2},
+                },
+            ]
+            process = FakeProcess(events)
+            with tempfile.TemporaryDirectory() as directory:
+                program_dir = Path(directory)
+                test_file = program_dir / "01_test.md"
+                test_file.write_text("# Title\nprompt text", encoding="utf-8")
+                with (
+                    patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                    patch.object(
+                        benchmark.subprocess, "Popen", return_value=process
+                    ) as popen,
+                    patch.object(
+                        benchmark.time,
+                        "perf_counter",
+                        side_effect=[100.0, 100.5, 101.0, 102.0],
+                    ),
+                ):
+                    result = benchmark.run_opencode_cli_test(
+                        provider, model, "prompt text", test_file, spinner
+                    )
+                self.assertEqual(result["full_name"], "provider/Technical-Model_1")
+                self.assertEqual(result["name"], "Technical")
+                command = popen.call_args.args[0]
+                self.assertEqual(
+                    command[: len(provider["run_command"])], provider["run_command"]
+                )
+                self.assertIn("--model", command)
+                self.assertIn("provider/Technical-Model_1", command)
+                self.assertIn("my-tool", result["event_log"])
+                self.assertIn("my-status", result["event_log"])
+                work_dir = result["agent_work_dir"]
+                self.assertTrue(work_dir)
+                with (
+                    patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                ):
+                    report_name = benchmark.save_report(
+                        result, test_file, "Title", "prompt text"
+                    )
+                content = (program_dir / report_name).read_text(encoding="utf-8")
+                for expected in (
+                    "Technical",
+                    work_dir,
+                    "my-tool",
+                    "my-status",
+                ):
+                    with self.subTest(expected=expected):
+                        self.assertIn(expected, content)
+        finally:
+            languages.set_language("ru")
+
+
+class HelpLanguageTests(unittest.TestCase):
+    def read_help(self, argv):
+        spinner = Mock()
+        with patch.object(benchmark.sys, "argv", argv):
+            benchmark.ensure_language()
+            with self.assertRaises(SystemExit):
+                benchmark.read_arguments(spinner)
+        return "\n".join(
+            str(call.args[0]) for call in spinner.write.call_args_list
+        )
+
+    def test_help_ru(self):
+        text = self.read_help(["benchmark.py", "--ru", "--help"])
+        self.assertIn("Использование:", text)
+        self.assertIn("--ru", text)
+        self.assertIn("--en", text)
+        languages.set_language("ru")
+
+    def test_help_en(self):
+        text = self.read_help(["benchmark.py", "--en", "--help"])
+        self.assertIn("Usage:", text)
+        self.assertIn("--ru", text)
+        self.assertIn("--en", text)
+        languages.set_language("ru")
+
+    def test_help_auto_language(self):
+        with patch.object(
+            languages.locale, "getdefaultlocale", return_value=("ru_RU", "UTF-8")
+        ):
+            text = self.read_help(["benchmark.py", "--help"])
+        self.assertIn("Использование:", text)
+        languages.set_language("ru")
+
+
+class LocalizationCompletenessTests(unittest.TestCase):
+    def test_main_source_has_no_hardcoded_russian(self):
+        source = Path(benchmark.__file__).read_text(encoding="utf-8")
+        for char in "абвгдеёжзийклмнопрстуфхцчшщэюя":
+            self.assertNotIn(char, source.lower())
+
+    def test_location_uses_technical_value(self):
+        languages.set_language("ru")
+        self.assertEqual(benchmark.location_label("local"), "локально")
+        self.assertEqual(benchmark.location_label("cloud"), "облако")
+        languages.set_language("en")
+        self.assertEqual(benchmark.location_label("local"), "local")
+        self.assertEqual(benchmark.location_label("cloud"), "cloud")
+        languages.set_language("ru")
+
+    def test_reports_match_protocol_metrics(self):
+        cases = [
+            (
+                "ollama",
+                {
+                    "source": "ollama",
+                    "name": "m",
+                    "first_token_seconds": 1,
+                    "total_seconds": 2,
+                    "tokens_per_second": 3,
+                    "prompt_tokens": 4,
+                    "tokens_generated": 5,
+                    "load_seconds": 0.5,
+                },
+                {
+                    "ru": ["До первого токена", "Скорость генерации", "Загрузка модели"],
+                    "en": ["Time to first token", "Generation speed", "Model load"],
+                },
+            ),
+            (
+                "opencode",
+                {
+                    "source": "opencode",
+                    "name": "m",
+                    "first_token_seconds": 1,
+                    "total_seconds": 2,
+                    "tokens_per_second": 3,
+                    "prompt_tokens": 4,
+                    "tokens_generated": 5,
+                    "reasoning_tokens": 2,
+                    "cache_read_tokens": 1,
+                    "total_tokens": 10,
+                    "agent_steps": 1,
+                },
+                {
+                    "ru": [
+                        "До первого текста",
+                        "Эффективная скорость агента",
+                        "Входных токенов без кэша",
+                        "Токенов размышления",
+                        "Токенов из кэша",
+                        "Всего токенов",
+                        "Шагов агента",
+                    ],
+                    "en": [
+                        "Time to first text",
+                        "Agent effective speed",
+                        "Input tokens without cache",
+                        "Reasoning tokens",
+                        "Cache tokens",
+                        "Total tokens",
+                        "Agent steps",
+                    ],
+                },
+            ),
+            (
+                "lmstudio",
+                {
+                    "source": "lmstudio",
+                    "name": "m",
+                    "first_token_seconds": 1,
+                    "total_seconds": 2,
+                    "tokens_per_second": 3,
+                    "prompt_tokens": 4,
+                    "tokens_generated": 5,
+                    "reasoning_tokens": 1,
+                },
+                {
+                    "ru": ["До первого токена", "Токенов размышления"],
+                    "en": ["Time to first token", "Reasoning tokens"],
+                },
+            ),
+        ]
+        try:
+            for source, result, expected in cases:
+                for lang_code, labels in expected.items():
+                    with self.subTest(source=source, lang=lang_code):
+                        languages.set_language(lang_code)
+                        lines = "\n".join(benchmark.metric_lines(result))
+                        for label in labels:
+                            self.assertIn(label, lines)
+        finally:
+            languages.set_language("ru")
+
+    def test_english_protocol_reports(self):
+        helper = ProviderFlowIntegrationTests()
+        opencode_process = FakeProcess(
+            [
+                {"type": "step_start"},
+                {"type": "reasoning", "text": "Checking condition"},
+                {
+                    "type": "tool_use",
+                    "part": {
+                        "tool": "read",
+                        "state": {"status": "completed", "title": "File read"},
+                    },
+                },
+                {"type": "text", "text": "Final answer"},
+                {
+                    "type": "step_finish",
+                    "tokens": {
+                        "input": 10,
+                        "output": 4,
+                        "reasoning": 2,
+                        "total": 19,
+                        "cache": {"read": 3},
+                    },
+                },
+            ]
+        )
+        opencode_report = helper.run_isolated(
+            "2",
+            patch.object(benchmark.subprocess, "Popen", return_value=opencode_process),
+            [100.0, 100.0, 101.0, 102.0, 103.0, 104.0, 104.5, 105.0],
+            lang_code="en",
+        )
+        for expected in (
+            "Source: Agent Test (cloud)",
+            "Time to first text",
+            "Agent effective speed",
+            "Input tokens without cache",
+            "Reasoning tokens",
+            "Cache tokens",
+            "Total tokens",
+            "Agent steps",
+            "[AGENT] Step 1",
+            "[THINKING]",
+            "[TOOL] read - completed",
+            "[ANSWER]",
+            "# EXECUTION LOG:",
+            "# MODEL ANSWER:\nFinal answer",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, opencode_report)
+
+        lmstudio_response = FakeSseResponse(
+            [
+                {"type": "message.delta", "content": "Test answer"},
+                {
+                    "type": "chat.end",
+                    "result": {
+                        "output": [{"type": "message", "content": "Test answer"}],
+                        "stats": {
+                            "input_tokens": 12,
+                            "total_output_tokens": 4,
+                            "reasoning_output_tokens": 1,
+                            "tokens_per_second": 8.5,
+                            "time_to_first_token_seconds": 0.45,
+                        },
+                    },
+                },
+            ]
+        )
+        lmstudio_report = helper.run_isolated(
+            "3",
+            patch.object(
+                benchmark.urllib.request, "urlopen", return_value=lmstudio_response
+            ),
+            [100.0, 101.0, 104.0],
+            lang_code="en",
+        )
+        for expected in (
+            "Source: LM Test (local)",
+            "Time to first token",
+            "Reasoning tokens",
+            "# MODEL ANSWER:\nTest answer",
+        ):
+            with self.subTest(expected=expected):
+                self.assertIn(expected, lmstudio_report)
+        languages.set_language("ru")
 
 
 if __name__ == "__main__":

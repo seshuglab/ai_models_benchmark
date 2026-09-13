@@ -11,11 +11,18 @@ from datetime import datetime
 from pathlib import Path
 
 
+from ai_models_benchmark_languages import (
+    LanguageError,
+    init_language_from_argv,
+    lang,
+    validate_languages,
+)
+
+
 VERSION = "0.9i"
 PROGRAM_DIR = Path(
     sys.executable if getattr(sys, "frozen", False) else __file__
 ).resolve().parent
-EXIT_PROMPT = "\nНажми Enter для выхода..."
 SHOW_SPINNER = "--no-spinner" not in sys.argv
 SPINNER_FRAMES = "|/-\\"
 SAVE_AGENT_JSON_LOG = "--opencode-json-log" in sys.argv
@@ -24,37 +31,52 @@ PROVIDERS = {
     "ollama": {
         "title": "Ollama",
         "location": "local",
-        "location_title": "локально",
         "protocol": "ollama_api",
         "models_url": "http://localhost:11434/api/tags",
         "generate_url": "http://localhost:11434/api/generate",
         "running_command": ["ollama", "ps"],
         "stop_command": ["ollama", "stop"],
-        "unavailable": "не обнаружена (нужен запущенный Ollama)",
+        "unavailable_key": "provider_unavailable_ollama",
     },
     "opencode": {
         "title": "OpenCode",
         "location": "cloud",
-        "location_title": "облако",
         "protocol": "opencode_cli",
         "executable": "opencode",
         "models_command": ["opencode", "models"],
         "run_command": ["opencode", "run", "--format", "json", "--thinking"],
-        "unavailable": "не обнаружен (нужен OpenCode CLI, команда 'opencode')",
+        "unavailable_key": "provider_unavailable_opencode",
     },
     "lmstudio": {
         "title": "LM Studio",
         "location": "local",
-        "location_title": "локально",
         "protocol": "lmstudio_api",
         "models_url": "http://localhost:1234/api/v1/models",
         "chat_url": "http://localhost:1234/api/v1/chat",
         "running_command": ["lms", "ps", "--json"],
         "load_command": ["lms", "load"],
         "unload_command": ["lms", "unload"],
-        "unavailable": "не обнаружена (нужен запущенный сервер LM Studio)",
+        "unavailable_key": "provider_unavailable_lmstudio",
     },
 }
+
+
+def provider_unavailable(provider_id):
+    key = PROVIDERS.get(provider_id, {}).get(
+        "unavailable_key", "unavailable_value"
+    )
+    return lang(key)
+
+
+def location_label(location):
+    if location == "local":
+        return lang("location_local")
+    return lang("location_cloud")
+
+
+def ensure_language(argv=None):
+    init_language_from_argv(argv)
+    validate_languages()
 
 PROTOCOLS = {
     "ollama_api": {
@@ -143,12 +165,12 @@ class Spinner:
 
 def format_number(value):
     if value is None:
-        return "недоступно"
+        return lang("unavailable_value")
     return f"{value:.2f}"
 
 
 def format_count(value):
-    return "недоступно" if value is None else str(value)
+    return lang("unavailable_value") if value is None else str(value)
 
 
 def calculate_rate(count, seconds):
@@ -159,31 +181,38 @@ def metric_lines(result):
     provider = PROVIDERS[result["source"]]
     protocol = PROTOCOLS[provider["protocol"]]
     agent = protocol["metrics"] == "agent"
+    sec = lang("sec")
+    speed = lang("speed_unit")
+    first_label = lang("first_text") if agent else lang("first_token")
+    speed_label = lang("agent_speed") if agent else lang("generation_speed")
+    prompt_label = lang("prompt_no_cache") if agent else lang("prompt_tokens")
     lines = [
-        f"{'До первого текста' if agent else 'До первого токена'}: "
-        f"{format_number(result.get('first_token_seconds'))} сек",
-        f"Полное время: {format_number(result.get('total_seconds'))} сек",
-        f"{'Эффективная скорость агента' if agent else 'Скорость генерации'}: "
-        f"{format_number(result.get('tokens_per_second'))} токен/сек",
-        f"{'Входных токенов без кэша' if agent else 'Токенов в промпте'}: "
-        f"{format_count(result.get('prompt_tokens'))}",
-        f"Сгенерировано токенов: {format_count(result.get('tokens_generated'))}",
+        f"{first_label}: {format_number(result.get('first_token_seconds'))} {sec}",
+        f"{lang('total_time')}: {format_number(result.get('total_seconds'))} {sec}",
+        f"{speed_label}: {format_number(result.get('tokens_per_second'))} {speed}",
+        f"{prompt_label}: {format_count(result.get('prompt_tokens'))}",
+        f"{lang('generated_tokens')}: {format_count(result.get('tokens_generated'))}",
     ]
     if agent or protocol["metrics"] == "local_reasoning":
         lines.append(
-            f"Токенов размышления: {format_count(result.get('reasoning_tokens'))}"
+            f"{lang('reasoning_tokens')}: "
+            f"{format_count(result.get('reasoning_tokens'))}"
         )
     if agent:
         lines.extend(
             [
-                f"Токенов из кэша: {format_count(result.get('cache_read_tokens'))}",
-                f"Всего токенов: {format_count(result.get('total_tokens'))}",
-                f"Шагов агента: {format_count(result.get('agent_steps'))}",
+                f"{lang('cache_tokens')}: "
+                f"{format_count(result.get('cache_read_tokens'))}",
+                f"{lang('total_tokens')}: "
+                f"{format_count(result.get('total_tokens'))}",
+                f"{lang('agent_steps')}: "
+                f"{format_count(result.get('agent_steps'))}",
             ]
         )
     if protocol["metrics"] == "generation":
         lines.append(
-            f"Загрузка модели: {format_number(result.get('load_seconds'))} сек"
+            f"{lang('load_model')}: "
+            f"{format_number(result.get('load_seconds'))} {sec}"
         )
     return lines
 
@@ -219,20 +248,12 @@ def choose_number(count, choice, spinner):
     choice = choice.strip()
     if choice.isdigit() and 1 <= int(choice) <= count:
         return int(choice) - 1
-    spinner.write("Неверный номер.")
+    spinner.write(lang("invalid_number"))
     return None
 
 
 def show_help(spinner):
-    spinner.write(
-        "Использование:\n"
-        "  python ai_models_benchmark.py\n"
-        "  python ai_models_benchmark.py <модель> <номер теста>\n\n"
-        "Параметры:\n"
-        "  --help                  Показать справку\n"
-        "  --no-spinner            Отключить спиннер\n"
-        "  --opencode-json-log     Сохранять JSON-события OpenCode"
-    )
+    spinner.write(lang("help_text"))
 
 
 def read_arguments(spinner):
@@ -249,7 +270,7 @@ def read_arguments(spinner):
         or not arguments[1].isdigit()
         or int(arguments[1]) < 1
     ):
-        spinner.write("Укажите модель и номер теста.\n")
+        spinner.write(lang("args_error"))
         show_help(spinner)
         raise SystemExit
     return arguments[0], int(arguments[1])
@@ -364,10 +385,10 @@ def prepare_local_model(provider, selected_model, spinner):
     other_models = [model for model in running_models if model != selected_model]
 
     if selected_model in running_models:
-        spinner.write("Выбранная модель уже загружена в память.")
+        spinner.write(lang("model_already_loaded"))
 
     for model in other_models:
-        spinner.write(f"Останавливаю другую модель: {model}")
+        spinner.write(lang("stopping_other_model", model=model))
         subprocess.run(provider["stop_command"] + [model], check=True)
 
 
@@ -390,13 +411,15 @@ def prepare_lmstudio_model(provider, selected_model, spinner):
         if model_key == selected_key:
             selected_loaded = True
         elif identifier:
-            spinner.write(f"Останавливаю другую модель: {model_key or identifier}")
+            spinner.write(
+                lang("stopping_other_model", model=model_key or identifier)
+            )
             subprocess.run(provider["unload_command"] + [identifier], check=True)
 
     if selected_loaded:
-        spinner.write("Выбранная модель уже загружена в память.")
+        spinner.write(lang("model_already_loaded"))
     else:
-        spinner.write(f"Загружаю модель: {selected_model['name']}")
+        spinner.write(lang("loading_model", name=selected_model["name"]))
         subprocess.run(provider["load_command"] + [selected_key, "-y"], check=True)
 
 
@@ -570,7 +593,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         if source_file.is_file() and not destination_file.exists():
             shutil.copy2(source_file, destination_file)
     relative_work_dir = str(agent_work_dir.relative_to(script_dir))
-    spinner.write(f"Рабочая папка агента: {relative_work_dir}")
+    spinner.write(lang("agent_work_dir", path=relative_work_dir))
 
     start_time = time.perf_counter()
     first_text_time = None
@@ -607,26 +630,30 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             if event_type == "step_start":
                 step_count += 1
                 add_opencode_event(
-                    event_log, f"[{elapsed}][АГЕНТ] Шаг {step_count}", spinner=spinner
+                    event_log,
+                    lang("log_agent_step", elapsed=elapsed, step=step_count),
+                    spinner=spinner,
                 )
             elif event_type == "reasoning":
                 reasoning = opencode_text(event)
                 if reasoning:
                     add_opencode_event(
                         event_log,
-                        f"[{elapsed}][РАЗМЫШЛЕНИЕ]",
+                        lang("log_thinking", elapsed=elapsed),
                         reasoning,
                         spinner,
                     )
             elif event_type == "tool_use":
                 part = event.get("part") or {}
                 state = part.get("state") or {}
-                tool = part.get("tool", "неизвестный инструмент")
-                status = state.get("status", "неизвестно")
+                tool = part.get("tool", lang("tool_unknown"))
+                status = state.get("status", lang("tool_status_unknown"))
                 title = state.get("title") or ""
                 add_opencode_event(
                     event_log,
-                    f"[{elapsed}][ИНСТРУМЕНТ] {tool} — {status}",
+                    lang(
+                        "log_tool", elapsed=elapsed, tool=tool, status=status
+                    ),
                     title,
                     spinner,
                 )
@@ -637,7 +664,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                 if text:
                     response_parts.append(text)
                     add_opencode_event(
-                        event_log, f"[{elapsed}][ОТВЕТ]", text, spinner
+                        event_log, lang("log_answer", elapsed=elapsed), text, spinner
                     )
             elif event_type == "step_finish":
                 tokens = opencode_tokens(event)
@@ -653,7 +680,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                     error = json.dumps(error, ensure_ascii=False, indent=2)
                 add_opencode_event(
                     event_log,
-                    f"[{elapsed}][ОШИБКА {provider['title'].upper()}]",
+                    lang("log_error", elapsed=elapsed, title=provider["title"].upper()),
                     error,
                     spinner,
                 )
@@ -693,7 +720,11 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     }
     if return_code:
         result["error"] = error_text or (
-            f"{provider['title']} завершился с кодом {return_code}"
+            lang(
+                "provider_exit_code",
+                title=provider["title"],
+                code=return_code,
+            )
         )
     return result
 
@@ -703,11 +734,11 @@ def make_error_result(model, error):
 
 
 def print_result(result, spinner):
-    spinner.write("\n\nТЕСТ ЗАВЕРШЁН")
+    spinner.write(lang("test_completed"))
     for line in metric_lines(result):
         spinner.write(line)
     if "error" in result:
-        spinner.write(f"ОШИБКА: {result['error']}")
+        spinner.write(f"{lang('error_label')}: {result['error']}")
 
 
 def save_report(result, test_file, test_title, prompt):
@@ -724,31 +755,40 @@ def save_report(result, test_file, test_title, prompt):
 
     with report_path.open("w", encoding="utf-8") as report:
         report.write(f"# AI MODELS BENCHMARK v{VERSION}\n")
-        report.write(f"Дата: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
+        report.write(
+            f"{lang('report_date')}: "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        )
         provider = PROVIDERS[result["source"]]
-        location_label = provider["location_title"]
-        report.write(f"Источник: {source_name(result['source'])} ({location_label})\n")
-        report.write(f"Модель: {result['name']}\n")
+        current_location = location_label(provider["location"])
+        report.write(
+            f"{lang('report_source')}: "
+            f"{source_name(result['source'])} ({current_location})\n"
+        )
+        report.write(f"{lang('report_model')}: {result['name']}\n")
         if result.get("agent_work_dir"):
-            report.write(f"Рабочая папка агента: {result['agent_work_dir']}\n")
-        report.write(f"Тест: {test_title}\n")
-        report.write(f"Файл теста: {test_file.name}\n")
+            report.write(
+                f"{lang('report_agent_dir')}: {result['agent_work_dir']}\n"
+            )
+        report.write(f"{lang('report_test')}: {test_title}\n")
+        report.write(f"{lang('report_test_file')}: {test_file.name}\n")
 
-        report.write("\n# МЕТРИКИ:\n")
+        report.write(lang("report_metrics"))
         report.write("\n".join(metric_lines(result)) + "\n")
 
         if "error" in result:
-            report.write(f"\n# ОШИБКА:\n{result['error']}\n")
+            report.write(lang("report_error"))
+            report.write(f"{result['error']}\n")
 
-        report.write("\n# ПРОМТ:\n")
+        report.write(lang("report_prompt"))
         report.write(prompt + "\n")
 
         if result.get("event_log"):
-            report.write("\n# ЖУРНАЛ ВЫПОЛНЕНИЯ:\n")
+            report.write(lang("report_log"))
             report.write(result["event_log"] + "\n")
 
         if "error" not in result:
-            report.write("\n# ОТВЕТ МОДЕЛИ:\n")
+            report.write(lang("report_answer"))
             report.write(result["response"] + "\n")
 
     if SAVE_AGENT_JSON_LOG and result.get("json_event_log"):
@@ -762,7 +802,7 @@ def save_report(result, test_file, test_title, prompt):
 def run(spinner, argv_model="", argv_test=0):
     spinner.write(f"AI MODELS BENCHMARK v{VERSION}")
     spinner.write("=" * 60)
-    spinner.write("Поиск доступных моделей...")
+    spinner.write(lang("searching_models"))
 
     def check_provider(item):
         provider_id, provider = item
@@ -775,20 +815,23 @@ def run(spinner, argv_model="", argv_test=0):
         provider_results = list(executor.map(check_provider, PROVIDERS.items()))
     provider_results.sort(key=lambda result: result[2])
 
-    for _, provider, found, _ in provider_results:
+    for provider_id, provider, found, _ in provider_results:
         if not found:
-            spinner.write(f"\n{provider['title']:<10}- {provider['unavailable']}")
+            spinner.write(
+                f"\n{provider['title']:<10}- "
+                f"{provider_unavailable(provider_id)}"
+            )
 
     models = list(itertools.chain.from_iterable(
         found_models for _, _, found, found_models in provider_results if found
     ))
     if not models:
-        spinner.write("\nДоступные модели не найдены.")
+        spinner.write(lang("no_models"))
         return
 
     tests = get_tests()
     if not tests:
-        spinner.write("\nТестовые файлы [0-9][0-9]_*.md не найдены.")
+        spinner.write(lang("no_tests"))
         return
 
     while True:
@@ -796,8 +839,12 @@ def run(spinner, argv_model="", argv_test=0):
         for _, provider, found, provider_models in provider_results:
             if found:
                 spinner.write(
-                    f"\n{provider['title']:<10}- {len(provider_models)} моделей "
-                    f"({provider['location_title']}):"
+                    lang(
+                        "provider_models",
+                        title=provider["title"],
+                        count=len(provider_models),
+                        location=location_label(provider["location"]),
+                    )
                 )
                 if provider_models:
                     write_model_grid(
@@ -817,17 +864,21 @@ def run(spinner, argv_model="", argv_test=0):
                 )
             ]
             if not matches:
-                spinner.write(f"\nМодель не найдена: {argv_model}")
+                spinner.write(lang("model_not_found", model=argv_model))
                 return
             if len(matches) > 1:
                 spinner.write(
-                    f"\nМоделей с именем {argv_model} найдено: {len(matches)}"
+                    lang(
+                        "duplicate_model",
+                        model=argv_model,
+                        count=len(matches),
+                    )
                 )
                 return
             model_index = matches[0]
         else:
             model_index = choose_number(
-                len(models), spinner.input("\nВыбери номер модели: "), spinner
+                len(models), spinner.input(lang("choose_model")), spinner
             )
         if model_index is None:
             return
@@ -835,26 +886,28 @@ def run(spinner, argv_model="", argv_test=0):
 
         provider = PROVIDERS[model["source"]]
         protocol = PROTOCOLS[provider["protocol"]]
-        location_label = provider["location_title"]
+        current_location = location_label(provider["location"])
         spinner.write(
-            f"\nВыбранная модель: {source_name(model['source'])} — "
-            f"{model['name']} ({location_label})"
+            lang(
+                "selected_model",
+                source=source_name(model["source"]),
+                name=model["name"],
+                location=current_location,
+            )
         )
 
-        spinner.write("\nДоступные тесты:\n")
+        spinner.write(lang("available_tests"))
         for number, (_, title, _) in enumerate(tests, start=1):
             spinner.write(f"{format_list_number(number, len(tests))} - {title}")
 
         if argv_test:
             if argv_test > len(tests):
-                spinner.write(f"\nТест не найден: {argv_test}")
+                spinner.write(lang("test_not_found", test=argv_test))
                 return
             selected_tests = [tests[argv_test - 1]]
             break
 
-        choice = spinner.input(
-            "\nВыбери номер теста, X — все тесты, 0 — назад: "
-        ).strip()
+        choice = spinner.input(lang("choose_test")).strip()
         if choice == "0":
             continue
         if choice.lower() == "x":
@@ -874,30 +927,40 @@ def run(spinner, argv_model="", argv_test=0):
     completed_tests = 0
     try:
         for test_file, test_title, prompt in selected_tests:
-            spinner.write(f"\nТест: {test_title}\n")
+            spinner.write(lang("test_header", title=test_title))
 
             result = protocol["run"](provider, model, prompt, test_file, spinner)
 
             print_result(result, spinner)
             report_name = save_report(result, test_file, test_title, prompt)
-            spinner.write(f"\nОтчёт сохранён: {report_name}")
+            spinner.write(lang("report_saved", name=report_name))
             completed_tests += 1
     except KeyboardInterrupt:
-        spinner.write("\nВыполнение остановлено пользователем.")
+        spinner.write(lang("interrupted"))
 
-    spinner.write(f"\nМодель: {model['name']}")
-    spinner.write(f"Пройдено тестов: {completed_tests}")
+    spinner.write(lang("final_model", name=model["name"]))
+    spinner.write(lang("tests_completed", count=completed_tests))
 
 
 def main():
     with Spinner(SHOW_SPINNER) as spinner:
         try:
+            ensure_language()
+        except LanguageError as error:
+            spinner.input(str(error))
+            raise SystemExit
+
+        try:
             argv_model, argv_test = read_arguments(spinner)
             run(spinner, argv_model, argv_test)
+        except SystemExit:
+            raise
+        except KeyboardInterrupt:
+            spinner.write(lang("interrupted"))
         except Exception as error:
-            spinner.write(f"\nОШИБКА: {error}")
+            spinner.write(f"\n{lang('error_label')}: {error}")
         finally:
-            spinner.input(EXIT_PROMPT)
+            spinner.input(lang("exit_prompt"))
 
 
 if __name__ == "__main__":
