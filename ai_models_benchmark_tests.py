@@ -854,12 +854,12 @@ class LanguageTableTests(unittest.TestCase):
             "ru": dict(languages.LANGUAGES["ru"]),
             "en": dict(languages.LANGUAGES["en"]),
         }
-        broken["en"].pop("choose_model")
+        broken["ru"].pop("choose_model")
         with patch.dict(languages.LANGUAGES, broken, clear=True):
             with self.assertRaises(languages.LanguageError) as context:
                 languages.validate_languages()
         message = str(context.exception)
-        self.assertIn("en", message)
+        self.assertIn("ru", message)
         self.assertIn("choose_model", message)
 
     def test_broken_table_stops_main_scenario(self):
@@ -891,8 +891,16 @@ class LanguageTableTests(unittest.TestCase):
 
     def test_format_fields_mismatch_fails(self):
         broken = {
-            "ru": {"greeting": "Привет, {name}"},
-            "en": {"greeting": "Hello, {username}"},
+            "ru": {
+                "_locales": ("ru",),
+                "_name": "Русский интерфейс",
+                "greeting": "Привет, {name}",
+            },
+            "en": {
+                "_locales": ("en",),
+                "_name": "English interface",
+                "greeting": "Hello, {username}",
+            },
         }
         with patch.dict(languages.LANGUAGES, broken, clear=True):
             with self.assertRaises(languages.LanguageError) as context:
@@ -962,6 +970,31 @@ class LangFunctionTests(unittest.TestCase):
 
 
 class LanguageSelectionTests(unittest.TestCase):
+    def test_new_language_works_from_one_table_entry(self):
+        test_language = dict(languages.LANGUAGES["en"])
+        test_language.update(
+            _locales=("zz",),
+            _name="ZZ interface",
+            invalid_number="ZZ invalid number.",
+        )
+        with patch.dict(
+            languages.LANGUAGES, {"zz": test_language}, clear=False
+        ):
+            self.assertEqual(
+                languages.init_language_from_argv(["benchmark.py", "--zz"]),
+                "zz",
+            )
+            self.assertEqual(languages.lang("invalid_number"), "ZZ invalid number.")
+            self.assertIn("--zz                    ZZ interface", languages.lang("help_text"))
+            with patch.object(
+                languages.locale,
+                "getdefaultlocale",
+                return_value=("zz_ZZ", "UTF-8"),
+            ):
+                self.assertEqual(languages.detect_system_language(), "zz")
+            languages.validate_languages()
+        languages.set_language("ru")
+
     def test_ru_flag_forces_russian(self):
         with (
             patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),

@@ -5,6 +5,8 @@ import sys
 
 LANGUAGES = {
     "ru": {
+        "_locales": ("ru",),
+        "_name": "Русский интерфейс",
         "exit_prompt": "\nНажми Enter для выхода...",
         "searching_models": "Поиск доступных моделей...",
         "no_models": "\nДоступные модели не найдены.",
@@ -38,8 +40,7 @@ LANGUAGES = {
             "  python ai_models_benchmark.py <модель> <номер теста>\n\n"
             "Параметры:\n"
             "  --help                  Показать справку\n"
-            "  --en                    English interface\n"
-            "  --ru                    Русский интерфейс\n"
+            "{language_options}\n"
             "  --no-spinner            Отключить спиннер\n"
             "  --opencode-json-log     Сохранять JSON-события OpenCode"
         ),
@@ -83,6 +84,8 @@ LANGUAGES = {
         "tests_completed": "Пройдено тестов: {count}",
     },
     "en": {
+        "_locales": ("en",),
+        "_name": "English interface",
         "exit_prompt": "\nPress Enter to exit...",
         "searching_models": "Searching for available models...",
         "no_models": "\nNo available models found.",
@@ -116,8 +119,7 @@ LANGUAGES = {
             "  python ai_models_benchmark.py <model> <test number>\n\n"
             "Options:\n"
             "  --help                  Show help\n"
-            "  --en                    English interface\n"
-            "  --ru                    Русский интерфейс\n"
+            "{language_options}\n"
             "  --no-spinner            Disable spinner\n"
             "  --opencode-json-log     Save OpenCode JSON events"
         ),
@@ -188,6 +190,11 @@ def lang(key, **values):
             f"Localization error: language '{_LANGUAGE}', unknown key '{key}'"
         )
     template = table[key]
+    if key == "help_text":
+        values["language_options"] = "\n".join(
+            f"  --{code:<22}{LANGUAGES[code]['_name']}"
+            for code in sorted(LANGUAGES)
+        )
     if values:
         return template.format(**values)
     return template
@@ -200,28 +207,26 @@ def detect_system_language():
         return "en"
     if not code:
         return "en"
-    normalized = code.lower()
-    if normalized.startswith("ru"):
-        return "ru"
+    normalized = code.casefold()
+    for language, table in LANGUAGES.items():
+        if any(
+            normalized.startswith(value.casefold())
+            for value in table["_locales"]
+        ):
+            return language
     return "en"
 
 
 def init_language_from_argv(argv=None):
     if argv is None:
         argv = sys.argv
-    has_ru = "--ru" in argv
-    has_en = "--en" in argv
-    if has_ru and has_en:
+    selected = [code for code in LANGUAGES if f"--{code}" in argv]
+    if len(selected) > 1:
         raise LanguageError(
-            "Localization error: cannot use --ru and --en together / "
-            "Нельзя одновременно использовать --ru и --en"
+            "Localization error: cannot use language options together: "
+            + ", ".join(f"--{code}" for code in selected)
         )
-    if has_ru:
-        set_language("ru")
-    elif has_en:
-        set_language("en")
-    else:
-        set_language(detect_system_language())
+    set_language(selected[0] if selected else detect_system_language())
     return _LANGUAGE
 
 
@@ -234,24 +239,27 @@ def _format_fields(template):
 
 
 def validate_languages():
-    ru_keys = set(LANGUAGES.get("ru", {}))
-    en_keys = set(LANGUAGES.get("en", {}))
-    for key in sorted(ru_keys - en_keys):
-        raise LanguageError(
-            f"Localization error: language 'en', missing key '{key}'"
-        )
-    for key in sorted(en_keys - ru_keys):
-        raise LanguageError(
-            f"Localization error: language 'ru', missing key '{key}'"
-        )
-    for key in sorted(ru_keys & en_keys):
-        ru_fields = _format_fields(LANGUAGES["ru"][key])
-        en_fields = _format_fields(LANGUAGES["en"][key])
-        if ru_fields != en_fields:
-            missing = sorted(ru_fields - en_fields)
-            extra = sorted(en_fields - ru_fields)
+    reference = {key for key in LANGUAGES["en"] if not key.startswith("_")}
+    for language, table in LANGUAGES.items():
+        for field in ("_locales", "_name"):
+            if not table.get(field):
+                raise LanguageError(
+                    f"Localization error: language '{language}', missing field '{field}'"
+                )
+        keys = {key for key in table if not key.startswith("_")}
+        for key in sorted(reference - keys):
             raise LanguageError(
-                f"Localization error: key '{key}', "
-                f"ru fields {sorted(ru_fields)}, en fields {sorted(en_fields)}, "
-                f"missing in en {missing}, extra in en {extra}"
+                f"Localization error: language '{language}', missing key '{key}'"
             )
+        for key in sorted(keys - reference):
+            raise LanguageError(
+                f"Localization error: language '{language}', extra key '{key}'"
+            )
+        for key in sorted(reference):
+            expected = _format_fields(LANGUAGES["en"][key])
+            actual = _format_fields(table[key])
+            if actual != expected:
+                raise LanguageError(
+                    f"Localization error: language '{language}', key '{key}', "
+                    f"fields {sorted(actual)}, expected {sorted(expected)}"
+                )
