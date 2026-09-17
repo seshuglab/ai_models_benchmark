@@ -1,4 +1,4 @@
-# AI Models Benchmark v0.9k
+# AI Models Benchmark v0.9l
 
 ## Назначение
 
