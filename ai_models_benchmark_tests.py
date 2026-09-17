@@ -2,7 +2,7 @@ import io
 import json
 import tempfile
 import unittest
-from contextlib import redirect_stdout
+from contextlib import nullcontext, redirect_stdout
 from pathlib import Path
 from unittest.mock import Mock, call, patch
 
@@ -123,6 +123,8 @@ class RunTests(unittest.TestCase):
         argv_test=0,
         available_models=None,
         terminal_width=80,
+        save_json_log=False,
+        program_dir=None,
     ):
         languages.set_language("ru")
         spinner = Mock()
@@ -166,6 +168,10 @@ class RunTests(unittest.TestCase):
                 "get_terminal_size",
                 return_value=Mock(columns=terminal_width),
             ),
+            patch.object(benchmark, "SAVE_AGENT_JSON_LOG", save_json_log),
+            patch.object(benchmark, "PROGRAM_DIR", program_dir)
+            if program_dir is not None
+            else nullcontext(),
         ):
             if run_side_effect is not None:
                 run_test.side_effect = run_side_effect
@@ -187,16 +193,28 @@ class RunTests(unittest.TestCase):
         spinner.write.assert_any_call("\nТест [2/2]: Второй тест\n")
         spinner.write.assert_any_call("Пройдено тестов: 2")
 
-    def test_header_uses_search_text_width(self):
+    def test_header_rule_follows_wider_line(self):
         spinner, *_ = self.run_with_test_choice("1")
         title = f"AI MODELS BENCHMARK v{benchmark.VERSION}"
         searching_models = languages.lang("searching_models")
 
         self.assertEqual(spinner.write.call_args_list[0], call(title))
         self.assertEqual(
-            spinner.write.call_args_list[1], call("─" * len(searching_models))
+            spinner.write.call_args_list[1],
+            call("─" * max(len(title), len(searching_models))),
         )
         self.assertEqual(spinner.write.call_args_list[2], call(searching_models))
+
+    def test_log_mode_rule_follows_tagged_title(self):
+        spinner, *_ = self.run_with_test_choice("1", save_json_log=True)
+        title = f"AI MODELS BENCHMARK v{benchmark.VERSION} [LOG]"
+        searching_models = languages.lang("searching_models")
+
+        self.assertEqual(spinner.write.call_args_list[0], call(title))
+        self.assertEqual(
+            spinner.write.call_args_list[1],
+            call("─" * max(len(title), len(searching_models))),
+        )
 
     def test_wide_header_shows_benchmark_banner(self):
         spinner, *_ = self.run_with_test_choice("1", terminal_width=120)
@@ -237,6 +255,33 @@ class RunTests(unittest.TestCase):
         titles = [item.args[0] for item in set_title.call_args_list]
         self.assertIn("1/2", titles[2])
         self.assertIn("2/2", titles[3])
+
+    def test_log_mode_marks_program_title(self):
+        spinner, *_ = self.run_with_test_choice("1", save_json_log=True)
+
+        self.assertEqual(
+            spinner.write.call_args_list[0],
+            call(f"AI MODELS BENCHMARK v{benchmark.VERSION} [LOG]"),
+        )
+
+    def test_log_hint_shown_only_for_existing_log_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            (program_dir / "report.log").write_text("{}\n", encoding="utf-8")
+            spinner, *_ = self.run_with_test_choice(
+                "1", save_json_log=True, program_dir=program_dir
+            )
+            spinner.write.assert_any_call("Дополнительно сохранён LOG-файл.")
+
+    def test_log_hint_skipped_without_log_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            spinner, *_ = self.run_with_test_choice(
+                "1", save_json_log=True, program_dir=Path(directory)
+            )
+            written = "\n".join(
+                str(item.args[0]) for item in spinner.write.call_args_list
+            )
+            self.assertNotIn("Дополнительно", written)
 
     def test_number_runs_only_selected_test(self):
         spinner, model, tests, _, run_test, save_report = self.run_with_test_choice("2")
@@ -643,6 +688,75 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("Токенов размышления: 1", report)
         self.assertIn("# ОТВЕТ МОДЕЛИ:\nТестовый ответ\n", report)
 
+    def test_opencode_log_file_has_header_and_blocks(self):
+        languages.set_language("ru")
+        spinner = Mock()
+        spinner.input.side_effect = ["1", "1"]
+        process = FakeProcess(
+            [
+                {"type": "step_start"},
+                {"type": "text", "text": "Ответ"},
+                {
+                    "type": "step_finish",
+                    "tokens": {"input": 1, "output": 2},
+                },
+            ]
+        )
+        providers = {"agent_test": benchmark.PROVIDERS["opencode"]}
+
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            (program_dir / "01_test.md").write_text(
+                "# Тест\nПромт.", encoding="utf-8"
+            )
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.dict(benchmark.PROVIDERS, providers, clear=True),
+                patch.dict(
+                    benchmark.PROTOCOLS["opencode_cli"],
+                    {
+                        "get_models": Mock(
+                            return_value=(True, [self.opencode_model])
+                        )
+                    },
+                ),
+                patch.object(
+                    benchmark.subprocess, "Popen", return_value=process
+                ),
+                patch.object(
+                    benchmark.time,
+                    "perf_counter",
+                    side_effect=[100.0, 100.0, 101.0, 102.0, 102.0, 103.0],
+                ),
+                patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+                patch.object(benchmark, "SAVE_AGENT_JSON_LOG", True),
+            ):
+                benchmark.run(spinner)
+
+            logs = list(program_dir.glob("ai_test_*.log"))
+            self.assertEqual(len(logs), 1)
+            content = logs[0].read_text(encoding="utf-8")
+
+        lines = content.splitlines()
+        self.assertTrue(
+            lines[0].startswith("# AI MODELS BENCHMARK v"), lines[0]
+        )
+        self.assertTrue(lines[0].endswith(" LOG"), lines[0])
+        self.assertIn("Модель: test-agent", content)
+        self.assertIn("Файл теста: 01_test.md", content)
+        self.assertIn("# ЖУРНАЛ ВЫПОЛНЕНИЯ:", content)
+        journal_index = lines.index("# ЖУРНАЛ ВЫПОЛНЕНИЯ:")
+        self.assertNotEqual(lines[journal_index + 1], "")
+        step_index = lines.index("[0][АГЕНТ] Шаг 1")
+        self.assertEqual(lines[step_index + 1], '{"type": "step_start"}')
+        answer_index = lines.index("[1][ОТВЕТ]")
+        self.assertEqual(lines[answer_index + 1], "Ответ")
+        self.assertEqual(
+            lines[answer_index + 2], '{"type": "text", "text": "Ответ"}'
+        )
+        self.assertIn('{"type": "step_finish"', content)
+        languages.set_language("ru")
+
 
 class LmStudioPreparationTests(unittest.TestCase):
     def setUp(self):
@@ -966,6 +1080,14 @@ class AddOpencodeEventTests(unittest.TestCase):
             )
         self.assertEqual(event_log, ["[ОТВЕТ]\na\n\nb"])
         self.assertEqual(output.getvalue(), "\n[ОТВЕТ]\na\n\nb\n")
+
+    def test_returns_logged_block(self):
+        event_log = []
+        with redirect_stdout(io.StringIO()):
+            block = benchmark.add_opencode_event(event_log, "[ОТВЕТ]", "a\n\nb\n")
+
+        self.assertEqual(block, "[ОТВЕТ]\na\n\nb")
+        self.assertEqual(event_log, [block])
 
 
 class LanguageTableTests(unittest.TestCase):

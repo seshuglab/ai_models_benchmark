@@ -582,6 +582,7 @@ def add_opencode_event(event_log, header, content="", spinner=None):
         spinner.write(output)
     else:
         print(output)
+    return block
 
 
 def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
@@ -608,6 +609,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     response_parts = []
     event_log = []
     json_events = []
+    json_blocks = []
     step_count = 0
     prompt_tokens = 0
     output_tokens = 0
@@ -629,15 +631,17 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         for line in process.stdout:
             if not line.strip():
                 continue
+            raw_event = line.rstrip("\r\n")
             if SAVE_AGENT_JSON_LOG:
-                json_events.append(line.rstrip("\r\n"))
+                json_events.append(raw_event)
             event = json.loads(line)
             event_type = event.get("type")
             elapsed = int(time.perf_counter() - start_time)
+            block = None
 
             if event_type == "step_start":
                 step_count += 1
-                add_opencode_event(
+                block = add_opencode_event(
                     event_log,
                     lang("log_agent_step", elapsed=elapsed, step=step_count),
                     spinner=spinner,
@@ -645,7 +649,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             elif event_type == "reasoning":
                 reasoning = opencode_text(event)
                 if reasoning:
-                    add_opencode_event(
+                    block = add_opencode_event(
                         event_log,
                         lang("log_thinking", elapsed=elapsed),
                         reasoning,
@@ -657,7 +661,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                 tool = part.get("tool", lang("tool_unknown"))
                 status = state.get("status", lang("tool_status_unknown"))
                 title = state.get("title") or ""
-                add_opencode_event(
+                block = add_opencode_event(
                     event_log,
                     lang(
                         "log_tool", elapsed=elapsed, tool=tool, status=status
@@ -671,7 +675,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                     first_text_time = time.perf_counter()
                 if text:
                     response_parts.append(text)
-                    add_opencode_event(
+                    block = add_opencode_event(
                         event_log, lang("log_answer", elapsed=elapsed), text, spinner
                     )
             elif event_type == "step_finish":
@@ -686,12 +690,15 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                 error = event.get("error")
                 if not isinstance(error, str):
                     error = json.dumps(error, ensure_ascii=False, indent=2)
-                add_opencode_event(
+                block = add_opencode_event(
                     event_log,
                     lang("log_error", elapsed=elapsed, title=provider["title"].upper()),
                     error,
                     spinner,
                 )
+
+            if SAVE_AGENT_JSON_LOG:
+                json_blocks.append((block, raw_event))
 
         error_text = process.stderr.read().strip()
         return_code = process.wait()
@@ -725,6 +732,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "event_log": "\n\n".join(event_log),
         "agent_work_dir": relative_work_dir,
         "json_event_log": "\n".join(json_events),
+        "json_event_blocks": json_blocks,
     }
     if return_code:
         result["error"] = error_text or (
@@ -800,8 +808,30 @@ def save_report(result, test_file, test_title, prompt):
             report.write(result["response"] + "\n")
 
     if SAVE_AGENT_JSON_LOG and result.get("json_event_log"):
+        log_head = [
+            f"# AI MODELS BENCHMARK v{VERSION} LOG",
+            f"{lang('report_date')}: "
+            f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"{lang('report_source')}: "
+            f"{source_name(result['source'])} "
+            f"({location_label(provider['location'])})",
+            f"{lang('report_model')}: {result['name']}",
+            f"{lang('report_test')}: {test_title}",
+            f"{lang('report_test_file')}: {test_file.name}",
+        ]
+        log_body = []
+        for header_block, raw_json in result.get("json_event_blocks", []):
+            if header_block:
+                log_body.append(header_block)
+            log_body.append(raw_json)
         report_path.with_suffix(".log").write_text(
-            result["json_event_log"] + "\n", encoding="utf-8"
+            "\n".join(log_head)
+            + "\n\n"
+            + lang("report_log").strip()
+            + "\n"
+            + "\n".join(log_body)
+            + "\n",
+            encoding="utf-8",
         )
 
     return report_path.name
@@ -809,10 +839,12 @@ def save_report(result, test_file, test_title, prompt):
 
 def run(spinner, argv_model="", argv_test=0):
     program_title = f"AI MODELS BENCHMARK v{VERSION}"
+    if SAVE_AGENT_JSON_LOG:
+        program_title += " [LOG]"
     searching_models = lang("searching_models")
     header = [
         program_title,
-        "─" * len(searching_models),
+        "─" * max(len(program_title), len(searching_models)),
         searching_models,
     ]
     banner = [
@@ -1006,6 +1038,9 @@ def run(spinner, argv_model="", argv_test=0):
             print_result(result, spinner)
             report_name = save_report(result, test_file, test_title, prompt)
             spinner.write(lang("report_saved", name=report_name))
+            log_path = (PROGRAM_DIR / report_name).with_suffix(".log")
+            if SAVE_AGENT_JSON_LOG and log_path.is_file():
+                spinner.write(lang("log_saved"))
             completed_tests += 1
     except KeyboardInterrupt:
         spinner.write(lang("interrupted"))
