@@ -947,6 +947,10 @@ def run(spinner, argv_model="", argv_test=0):
                     model_number is None
                     and item["name"].casefold() == choice.casefold()
                 )
+                or (
+                    model_number is None
+                    and item["full_name"].casefold() == choice.casefold()
+                )
             ]
             if not matches:
                 spinner.write(lang("model_not_found", model=choice))
@@ -954,8 +958,16 @@ def run(spinner, argv_model="", argv_test=0):
                     return
                 continue
             if len(matches) > 1:
+                duplicates = "\n".join(
+                    f"  {models[index]['full_name']}" for index in matches
+                )
                 spinner.write(
-                    lang("duplicate_model", model=choice, count=len(matches))
+                    lang(
+                        "duplicate_model",
+                        model=choice,
+                        count=len(matches),
+                        models=duplicates,
+                    )
                 )
                 if argv_model:
                     return

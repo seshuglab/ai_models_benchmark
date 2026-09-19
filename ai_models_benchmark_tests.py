@@ -363,7 +363,7 @@ class RunTests(unittest.TestCase):
             "1", input_values=["same", "1", "1"], available_models=models
         )
 
-        spinner.write.assert_any_call("\nНайдено моделей с именем same: 2")
+        spinner.write.assert_any_call("\nНайдено моделей с именем same: 2\n  first\n  second")
         self.assertEqual(spinner.input.call_count, 3)
         prepare_model.assert_called_once()
         run_test.assert_called_once()
@@ -402,9 +402,37 @@ class RunTests(unittest.TestCase):
             available_models=models,
         )
 
-        spinner.write.assert_any_call("\nНайдено моделей с именем same: 2")
+        spinner.write.assert_any_call("\nНайдено моделей с именем same: 2\n  first\n  second")
         prepare_model.assert_not_called()
         run_test.assert_not_called()
+
+    def test_full_name_selects_exact_model(self):
+        models = [
+            {"source": "ollama", "name": "same", "full_name": "first"},
+            {"source": "ollama", "name": "same", "full_name": "second"},
+        ]
+        for model_value in ("first", "second", "SECOND"):
+            with self.subTest(model=model_value):
+                spinner, _, _, _, run_test, _ = self.run_with_test_choice(
+                    None,
+                    input_values=[],
+                    argv_model=model_value,
+                    argv_test=1,
+                    available_models=models,
+                )
+                spinner.input.assert_not_called()
+                run_test.assert_called_once()
+
+    def test_interactive_full_name_selects_exact_model(self):
+        models = [
+            {"source": "ollama", "name": "same", "full_name": "first"},
+            {"source": "ollama", "name": "same", "full_name": "second"},
+        ]
+        spinner, _, _, _, run_test, _ = self.run_with_test_choice(
+            "1", input_values=["second", "1"], available_models=models
+        )
+
+        run_test.assert_called_once()
 
     def test_arguments_reject_unknown_test(self):
         spinner, _, _, prepare_model, run_test, _ = self.run_with_test_choice(
