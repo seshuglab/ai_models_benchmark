@@ -664,7 +664,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("Шагов агента: 1", report)
         self.assertIn("[0][АГЕНТ] Шаг 1", report)
         self.assertIn("[1][РАЗМЫШЛЕНИЕ]\nПроверяю условие", report)
-        self.assertIn("[2][ИНСТРУМЕНТ] read — completed\nПрочитан файл", report)
+        self.assertIn("[2][ИНСТРУМЕНТ] read - completed\nПрочитан файл", report)
         cleaned_response = "Однозначный тестовый ответ\n\nВторая строка"
         self.assertIn(f"[3][ОТВЕТ]\n{cleaned_response}", report)
         self.assertIn(f"# ОТВЕТ МОДЕЛИ:\n{cleaned_response}\n", report)
@@ -1215,7 +1215,7 @@ class LangFunctionTests(unittest.TestCase):
                 count=1,
                 location="локально",
             ),
-            "\nOllama    — моделей: 1 (локально)\n",
+            "\nOllama    - моделей: 1 (локально)\n",
         )
         languages.set_language("en")
         self.assertEqual(

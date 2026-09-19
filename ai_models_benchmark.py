@@ -886,7 +886,7 @@ def run(spinner, argv_model="", argv_test=0):
         width = max(len(provider["title"]) for provider in PROVIDERS.values())
 
         unavailable = [
-            f"{provider['title'].ljust(width)} — "
+            f"{provider['title'].ljust(width)} - "
             f"{provider_unavailable(provider_id)}"
             for provider_id, provider, found, _ in results
             if not found
