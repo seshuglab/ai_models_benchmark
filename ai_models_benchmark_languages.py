@@ -41,14 +41,14 @@ LANGUAGES = {
         "help_text": (
             "Использование:\n"
             "  python ai_models_benchmark.py\n"
-            "  python ai_models_benchmark.py <модель> <номер теста>\n\n"
+            "  python ai_models_benchmark.py <модель> <номер теста | X>\n\n"
             "Параметры:\n"
             "  --help                  Показать справку\n"
             "{language_options}\n"
             "  --no-spinner            Отключить спиннер\n"
             "  --opencode-json-log     Сохранять JSON-события OpenCode"
         ),
-        "args_error": "Укажите модель и номер теста.\n",
+        "args_error": "Укажите модель, номер теста или X.\n",
         "model_already_loaded": "Выбранная модель уже загружена в память.",
         "stopping_other_model": "Останавливаю другую модель: {model}",
         "loading_model": "Загружаю модель: {name}",
@@ -75,7 +75,7 @@ LANGUAGES = {
         "report_log": "\n# ЖУРНАЛ ВЫПОЛНЕНИЯ:\n",
         "report_answer": "\n# ОТВЕТ МОДЕЛИ:\n",
         "model_not_found": "\nМодель не найдена: {model}",
-        "duplicate_model": "\nМоделей с именем {model} найдено: {count}",
+        "duplicate_model": "\nНайдено моделей с именем {model}: {count}",
         "choose_model": "\n> Выбери номер или имя модели, [R] — обновить список: ",
         "choose_test": "\n> Выбери номер теста, [X] — все тесты, [0] — назад: ",
         "available_tests": "\nДоступные тесты:\n",
@@ -100,7 +100,7 @@ LANGUAGES = {
         "window_error": "{program} - error",
         "no_models": "\nNo available models found.",
         "no_tests": "\nTest files [0-9][0-9]_*.md not found.",
-        "provider_models": "\n{title} — models: {count} ({location})\n",
+        "provider_models": "\n{title} - models: {count} ({location})\n",
         "provider_unavailable_ollama": "unavailable: service is not running",
         "provider_unavailable_opencode": "unavailable: CLI not found",
         "provider_unavailable_lmstudio": "unavailable: server is not running",
@@ -126,14 +126,14 @@ LANGUAGES = {
         "help_text": (
             "Usage:\n"
             "  python ai_models_benchmark.py\n"
-            "  python ai_models_benchmark.py <model> <test number>\n\n"
+            "  python ai_models_benchmark.py <model> <test number | X>\n\n"
             "Options:\n"
             "  --help                  Show help\n"
             "{language_options}\n"
             "  --no-spinner            Disable spinner\n"
             "  --opencode-json-log     Save OpenCode JSON events"
         ),
-        "args_error": "Specify the model and test number.\n",
+        "args_error": "Specify the model, test number or X.\n",
         "model_already_loaded": "Selected model is already loaded in memory.",
         "stopping_other_model": "Stopping another model: {model}",
         "loading_model": "Loading model: {name}",

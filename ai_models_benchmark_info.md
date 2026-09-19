@@ -54,10 +54,13 @@ python ai_models_benchmark.py
 ```text
 python ai_models_benchmark.py 2 7
 python ai_models_benchmark.py gpt-5.6-luna 7
+python ai_models_benchmark.py gpt-5.6-luna X
 python ai_models_benchmark.py --en
 python ai_models_benchmark.py --ru 2 7
 python ai_models_benchmark.py --en --help
 ```
+
+Вместо номера теста можно указать `X`: выбранная модель пройдёт все доступные тесты, каждый по-прежнему сохраняется в отдельный отчёт.
 
 При ошибочном номере или неоднозначном имени модели программа показывает причину и не переходит к интерактивному выбору. Каждый язык полностью описывается одним блоком в `ai_models_benchmark_languages.py`; его параметр, системные локали и строка в справке подключаются автоматически. Интерфейс, справка и отчёты выводятся на выбранном языке, технические данные, промты и ответы моделей не переводятся.
 

@@ -47,6 +47,7 @@ Select a model by number or case-insensitive full name and start a task by numbe
 ```text
 python ai_models_benchmark.py 2 7
 python ai_models_benchmark.py gpt-5.6-luna 7
+python ai_models_benchmark.py gpt-5.6-luna X
 python ai_models_benchmark.py --en 2 7
 ```
 

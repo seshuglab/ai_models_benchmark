@@ -363,7 +363,7 @@ class RunTests(unittest.TestCase):
             "1", input_values=["same", "1", "1"], available_models=models
         )
 
-        spinner.write.assert_any_call("\nМоделей с именем same найдено: 2")
+        spinner.write.assert_any_call("\nНайдено моделей с именем same: 2")
         self.assertEqual(spinner.input.call_count, 3)
         prepare_model.assert_called_once()
         run_test.assert_called_once()
@@ -402,7 +402,7 @@ class RunTests(unittest.TestCase):
             available_models=models,
         )
 
-        spinner.write.assert_any_call("\nМоделей с именем same найдено: 2")
+        spinner.write.assert_any_call("\nНайдено моделей с именем same: 2")
         prepare_model.assert_not_called()
         run_test.assert_not_called()
 
@@ -414,6 +414,16 @@ class RunTests(unittest.TestCase):
         spinner.write.assert_any_call("\nТест не найден: 7")
         prepare_model.assert_not_called()
         run_test.assert_not_called()
+
+    def test_arguments_run_all_tests_with_x(self):
+        spinner, _, tests, _, run_test, save_report = self.run_with_test_choice(
+            None, input_values=[], argv_model="1", argv_test="x"
+        )
+
+        spinner.input.assert_not_called()
+        self.assertEqual(run_test.call_count, len(tests))
+        self.assertEqual(save_report.call_count, len(tests))
+        spinner.write.assert_any_call("Пройдено тестов: 2")
 
 
 class ReadArgumentsTests(unittest.TestCase):
@@ -427,9 +437,20 @@ class ReadArgumentsTests(unittest.TestCase):
         ):
             self.assertEqual(benchmark.read_arguments(spinner), ("model", 7))
 
+    def test_reads_model_and_all_tests(self):
+        spinner = Mock()
+        for flag in ("x", "X"):
+            with self.subTest(flag=flag):
+                with patch.object(
+                    benchmark.sys, "argv", ["benchmark.py", "--ru", "model", flag]
+                ):
+                    self.assertEqual(
+                        benchmark.read_arguments(spinner), ("model", "x")
+                    )
+
     def test_rejects_invalid_arguments(self):
         spinner = Mock()
-        for arguments in (["model"], ["model", "x"], ["model", "0"]):
+        for arguments in (["model"], ["model", "y"], ["model", "0"]):
             with self.subTest(arguments=arguments):
                 spinner.reset_mock()
                 with patch.object(
@@ -437,7 +458,7 @@ class ReadArgumentsTests(unittest.TestCase):
                 ):
                     with self.assertRaises(SystemExit):
                         benchmark.read_arguments(spinner)
-                spinner.write.assert_any_call("Укажите модель и номер теста.\n")
+                spinner.write.assert_any_call("Укажите модель, номер теста или X.\n")
 
     def test_shows_help(self):
         spinner = Mock()
@@ -451,7 +472,7 @@ class ReadArgumentsTests(unittest.TestCase):
     def test_main_waits_for_enter_after_invalid_arguments(self):
         spinner = Mock()
         spinner.input.side_effect = lambda _: spinner.write.assert_any_call(
-            "Укажите модель и номер теста.\n"
+            "Укажите модель, номер теста или X.\n"
         )
         spinner_context = Mock()
         spinner_context.__enter__ = Mock(return_value=spinner)
@@ -1204,7 +1225,7 @@ class LangFunctionTests(unittest.TestCase):
                 count=52,
                 location="cloud",
             ),
-            "\nOpenCode  — models: 52 (cloud)\n",
+            "\nOpenCode  - models: 52 (cloud)\n",
         )
         languages.set_language("ru")
 

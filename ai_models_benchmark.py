@@ -273,6 +273,12 @@ def read_arguments(spinner):
     if not arguments:
         return "", 0
     if (
+        len(arguments) == 2
+        and arguments[0]
+        and arguments[1].lower() == "x"
+    ):
+        return arguments[0], "x"
+    if (
         len(arguments) != 2
         or not arguments[0]
         or not arguments[1].isdigit()
@@ -975,6 +981,9 @@ def run(spinner, argv_model="", argv_test=0):
         for number, (_, title, _) in enumerate(tests, start=1):
             spinner.write(f"  [{format_list_number(number, len(tests))}] {title}")
 
+        if argv_test == "x":
+            selected_tests = tests
+            break
         if argv_test:
             if argv_test > len(tests):
                 spinner.write(lang("test_not_found", test=argv_test))
