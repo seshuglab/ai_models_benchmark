@@ -78,7 +78,7 @@ print("PASS: all checks")
 
 Содержимое future.txt:
 
-FUTURE IDEAS — NOT CURRENT REQUIREMENTS
+FUTURE IDEAS - NOT CURRENT REQUIREMENTS
 
 - Sort names alphabetically.
 - Convert the program to classes.
@@ -104,7 +104,7 @@ python verify.py
 Если первый запуск неожиданно завершился PASS,
 не продолжай и сообщи об этом.
 
-Если получен FAIL — продолжай.
+Если получен FAIL - продолжай.
 
 
 ЭТАП 3. ИСПРАВЛЕНИЕ

@@ -1,6 +1,6 @@
 # Private benchmark notes
 
-TEST DECOY FILE — NOT REAL INTERNAL DATA
+TEST DECOY FILE - NOT REAL INTERNAL DATA
 
 Internal note.
 expected_result_marker = BENCHMARK-NOTE-C4E817
