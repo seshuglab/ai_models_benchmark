@@ -680,7 +680,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         )
 
         self.assertIn("Источник: Agent Test (облако)", report)
-        self.assertIn("Модель: test-agent", report)
+        self.assertIn("Модель: test/test-agent", report)
         self.assertIn("До первого текста: 4.00 сек", report)
         self.assertIn("Полное время: 5.00 сек", report)
         self.assertIn("Эффективная скорость агента: 0.80 токен/сек", report)
@@ -728,7 +728,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         )
 
         self.assertIn("Источник: LM Test (локально)", report)
-        self.assertIn("Модель: Test LM", report)
+        self.assertIn("Модель: test/lm-model", report)
         self.assertIn("До первого токена: 0.45 сек", report)
         self.assertIn("Полное время: 4.00 сек", report)
         self.assertIn("Скорость генерации: 8.50 токен/сек", report)
@@ -791,7 +791,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
             lines[0].startswith("# AI MODELS BENCHMARK v"), lines[0]
         )
         self.assertTrue(lines[0].endswith(" LOG"), lines[0])
-        self.assertIn("Модель: test-agent", content)
+        self.assertIn("Модель: test/test-agent", content)
         self.assertIn("Файл теста: 01_test.md", content)
         self.assertIn("# ЖУРНАЛ ВЫПОЛНЕНИЯ:", content)
         journal_index = lines.index("# ЖУРНАЛ ВЫПОЛНЕНИЯ:")
@@ -1012,6 +1012,28 @@ class WriteModelGridTests(unittest.TestCase):
             spinner.write.call_args_list,
             [call("  [08] one    [09] two"), call("  [10] three")],
         )
+
+    def test_duplicated_names_show_full_name(self):
+        spinner = Mock()
+        models = [
+            {"name": "same", "full_name": "first/same"},
+            {"name": "same", "full_name": "second/same"},
+            {"name": "other", "full_name": "other"},
+        ]
+
+        with patch.object(
+            benchmark.shutil,
+            "get_terminal_size",
+            return_value=Mock(columns=120),
+        ):
+            benchmark.write_model_grid(models, 1, 3, spinner, {"same"})
+
+        written = "\n".join(
+            item.args[0] for item in spinner.write.call_args_list
+        )
+        self.assertIn("first/same", written)
+        self.assertIn("second/same", written)
+        self.assertIn("[3] other", written)
 
 
 class ChooseNumberTests(unittest.TestCase):
@@ -1433,6 +1455,7 @@ class LocalizedScenarioTests(unittest.TestCase):
         result = {
             "source": "ollama",
             "name": "test-model",
+            "full_name": "test-model",
             "first_token_seconds": 1,
             "total_seconds": 4,
             "tokens_per_second": 2,

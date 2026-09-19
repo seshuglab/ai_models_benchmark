@@ -228,9 +228,17 @@ def format_list_number(number, count):
     return f"{number:0{len(str(count))}d}"
 
 
-def write_model_grid(models, start_number, total_count, spinner):
+def display_name(model, duplicated_names=frozenset()):
+    if model["name"] in duplicated_names:
+        return model["full_name"]
+    return model["name"]
+
+
+def write_model_grid(models, start_number, total_count, spinner,
+                     duplicated_names=frozenset()):
     cells = [
-        f"[{format_list_number(number, total_count)}] {model['name']}"
+        f"[{format_list_number(number, total_count)}] "
+        f"{display_name(model, duplicated_names)}"
         for number, model in enumerate(models, start_number)
     ]
     cell_width = max(map(len, cells)) + 2
@@ -787,7 +795,7 @@ def save_report(result, test_file, test_title, prompt):
             f"{lang('report_source')}: "
             f"{source_name(result['source'])} ({current_location})\n"
         )
-        report.write(f"{lang('report_model')}: {result['name']}\n")
+        report.write(f"{lang('report_model')}: {result['full_name']}\n")
         if result.get("agent_work_dir"):
             report.write(
                 f"{lang('report_agent_dir')}: {result['agent_work_dir']}\n"
@@ -821,7 +829,7 @@ def save_report(result, test_file, test_title, prompt):
             f"{lang('report_source')}: "
             f"{source_name(result['source'])} "
             f"({location_label(provider['location'])})",
-            f"{lang('report_model')}: {result['name']}",
+            f"{lang('report_model')}: {result['full_name']}",
             f"{lang('report_test')}: {test_title}",
             f"{lang('report_test_file')}: {test_file.name}",
         ]
@@ -910,6 +918,12 @@ def run(spinner, argv_model="", argv_test=0):
         return
 
     while True:
+        name_counts = {}
+        for item in models:
+            name_counts[item["name"]] = name_counts.get(item["name"], 0) + 1
+        duplicated_names = frozenset(
+            name for name, count in name_counts.items() if count > 1
+        )
         start_number = 1
         for _, provider, found, provider_models in provider_results:
             if found:
@@ -923,7 +937,8 @@ def run(spinner, argv_model="", argv_test=0):
                 )
                 if provider_models:
                     write_model_grid(
-                        provider_models, start_number, len(models), spinner
+                        provider_models, start_number, len(models), spinner,
+                        duplicated_names,
                     )
                 start_number += len(provider_models)
 
@@ -984,7 +999,7 @@ def run(spinner, argv_model="", argv_test=0):
             lang(
                 "selected_model",
                 source=source_name(model["source"]),
-                name=model["name"],
+                name=model["full_name"],
                 location=current_location,
             )
         )
@@ -1069,7 +1084,7 @@ def run(spinner, argv_model="", argv_test=0):
     else:
         state = "window_error" if failed else "window_completed"
         set_window_title(lang(state, program=program_title))
-    spinner.write(lang("final_model", name=model["name"]))
+    spinner.write(lang("final_model", name=model["full_name"]))
     spinner.write(lang("tests_completed", count=completed_tests))
 
 
