@@ -53,6 +53,8 @@ python ai_models_benchmark.py --en 2 7
 
 If the model is missing, its name is ambiguous, or the task number is invalid, the program explains the problem and does not fall back to interactive selection.
 
+Reasoning effort variants (`low`, `medium`, `high` and so on) are not selectable: each model runs on the default provided by OpenCode or another provider, keeping model choice simple. Defaults differ per model (`medium` is usual for ChatGPT); check the exact variant list of a model in OpenCode itself (`opencode models --verbose`).
+
 The interface and report language are selected automatically from the system locale: Russian for Russian locales, English for all other or unavailable locales. A manual option takes priority:
 
 ```text
