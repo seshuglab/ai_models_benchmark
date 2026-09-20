@@ -63,7 +63,6 @@ $releaseFiles = @(
     "BENCHMARK_PRIVATE_NOTES.md",
     "PASSWORDS.txt",
     "README.md",
-    "README_EN.md",
     "LICENSE",
     "preview.gif",
     "ai_models_benchmark_changelog.md",
