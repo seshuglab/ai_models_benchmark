@@ -418,15 +418,18 @@ def prepare_local_model(provider, selected_model, spinner):
 
 
 def prepare_lmstudio_model(provider, selected_model, spinner):
-    result = subprocess.run(
-        provider["running_command"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=True,
-    )
-    running_models = json.loads(result.stdout)
+    try:
+        result = subprocess.run(
+            provider["running_command"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
+        running_models = json.loads(result.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        running_models = []
     selected_key = selected_model["full_name"]
     selected_loaded = False
 
