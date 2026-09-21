@@ -341,6 +341,62 @@ class RunTests(unittest.TestCase):
         self.assertEqual(titles.count(searching), 2)
         run_test.assert_called_once()
 
+    def test_provider_search_error_does_not_stop_other_providers(self):
+        languages.set_language("ru")
+        spinner = Mock()
+        spinner.input.side_effect = ["1", "1"]
+        model = {
+            "source": "working",
+            "name": "working-model",
+            "full_name": "working-model",
+        }
+        providers = {
+            "broken": {
+                "title": "Broken",
+                "location": "local",
+                "protocol": "broken_protocol",
+                "unavailable_key": "provider_unavailable_ollama",
+            },
+            "working": {
+                "title": "Working",
+                "location": "local",
+                "protocol": "working_protocol",
+                "unavailable_key": "provider_unavailable_ollama",
+            },
+        }
+        run_test = Mock(return_value={})
+        protocols = {
+            "broken_protocol": {
+                "get_models": Mock(side_effect=RuntimeError("broken response")),
+                "prepare": None,
+                "run": run_test,
+                "metrics": "generation",
+            },
+            "working_protocol": {
+                "get_models": Mock(return_value=(True, [model])),
+                "prepare": None,
+                "run": run_test,
+                "metrics": "generation",
+            },
+        }
+        tests = [("01_test.md", "Test", "prompt")]
+
+        with (
+            patch.object(benchmark, "get_tests", return_value=tests),
+            patch.object(benchmark, "print_result"),
+            patch.object(benchmark, "save_report", return_value="report.txt"),
+            patch.dict(benchmark.PROVIDERS, providers, clear=True),
+            patch.dict(benchmark.PROTOCOLS, protocols, clear=True),
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+        ):
+            benchmark.run(spinner)
+
+        run_test.assert_called_once()
+        written = "\n".join(str(call.args[0]) for call in spinner.write.call_args_list)
+        self.assertIn("Broken  -", written)
+        self.assertIn("недоступен", written)
+        self.assertIn("working-model", written)
+
     def test_interactive_selection_accepts_model_name(self):
         _, _, _, _, run_test, _ = self.run_with_test_choice(
             "1", input_values=["TEST-MODEL", "1"]

@@ -951,9 +951,12 @@ def run(spinner, argv_model="", argv_test=0):
 
         def check_provider(item):
             provider_id, provider = item
-            found, models = PROTOCOLS[provider["protocol"]]["get_models"](
-                provider_id, provider
-            )
+            try:
+                found, models = PROTOCOLS[provider["protocol"]]["get_models"](
+                    provider_id, provider
+                )
+            except Exception:
+                found, models = False, []
             return provider_id, provider, found, models
 
         with ThreadPoolExecutor() as executor:
