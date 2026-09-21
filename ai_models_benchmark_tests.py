@@ -125,6 +125,7 @@ class RunTests(unittest.TestCase):
         terminal_width=80,
         save_json_log=False,
         program_dir=None,
+        provider_id="ollama",
     ):
         languages.set_language("ru")
         spinner = Mock()
@@ -132,7 +133,7 @@ class RunTests(unittest.TestCase):
             input_values if input_values is not None else ["1", choice]
         )
         model = {
-            "source": "ollama",
+            "source": provider_id,
             "name": "test-model",
             "full_name": "test-model",
         }
@@ -153,11 +154,13 @@ class RunTests(unittest.TestCase):
         with (
             patch.dict(
                 benchmark.PROVIDERS,
-                {"ollama": benchmark.PROVIDERS["ollama"]},
+                {provider_id: benchmark.PROVIDERS[provider_id]},
                 clear=True,
             ),
             patch.dict(
-                benchmark.PROTOCOLS, {"ollama_api": protocol}, clear=True
+                benchmark.PROTOCOLS,
+                {benchmark.PROVIDERS[provider_id]["protocol"]: protocol},
+                clear=True,
             ),
             patch.object(benchmark, "get_tests", return_value=tests),
             patch.object(benchmark, "print_result"),
@@ -433,6 +436,28 @@ class RunTests(unittest.TestCase):
         )
 
         run_test.assert_called_once()
+
+    def test_grouped_number_selects_displayed_model(self):
+        models = [
+            {"source": "opencode", "name": "a", "full_name": "openai/a"},
+            {"source": "opencode", "name": "b", "full_name": "other/b"},
+            {"source": "opencode", "name": "c", "full_name": "openai/c"},
+        ]
+
+        spinner, _, _, prepare_model, _, _ = self.run_with_test_choice(
+            "1",
+            input_values=["2", "1"],
+            available_models=models,
+            provider_id="opencode",
+        )
+
+        displayed = "\n".join(
+            str(item.args[0]) for item in spinner.write.call_args_list
+        )
+        self.assertIn("openai/", displayed)
+        self.assertIn("other/", displayed)
+        self.assertIn("[2] c", displayed)
+        self.assertEqual(prepare_model.call_args.args[1]["full_name"], "openai/c")
 
     def test_arguments_reject_unknown_test(self):
         spinner, _, _, prepare_model, run_test, _ = self.run_with_test_choice(
@@ -1002,26 +1027,79 @@ class FormatListNumberTests(unittest.TestCase):
 
 
 class WriteModelGridTests(unittest.TestCase):
-    def test_wraps_models_and_keeps_continuous_numbering(self):
+    def test_sections_share_grid_with_continuous_numbering(self):
         spinner = Mock()
-        models = [{"name": name} for name in ("one", "two", "three")]
+        sections = [
+            ("a", [{"name": name} for name in ("aa", "bb")]),
+            ("b", [{"name": name} for name in ("cc", "dd")]),
+        ]
 
         with patch.object(
-            benchmark.shutil, "get_terminal_size", return_value=Mock(columns=30)
+            benchmark.shutil, "get_terminal_size", return_value=Mock(columns=28)
         ):
-            benchmark.write_model_grid(models, 8, 10, spinner)
+            benchmark.write_model_grid(sections, 4, spinner)
 
         self.assertEqual(
             spinner.write.call_args_list,
-            [call("  [08] one    [09] two"), call("  [10] three")],
+            [
+                call("      a/      b/"),
+                call("  [1] aa  [3] cc"),
+                call("  [2] bb  [4] dd"),
+            ],
+        )
+
+    def test_columns_use_their_own_width(self):
+        spinner = Mock()
+        sections = [
+            ("a", [{"name": "x"}]),
+            ("b", [{"name": "long-model-name"}]),
+        ]
+
+        with patch.object(
+            benchmark.shutil, "get_terminal_size", return_value=Mock(columns=34)
+        ):
+            benchmark.write_model_grid(sections, 2, spinner)
+
+        self.assertIn("a/", spinner.write.call_args_list[0].args[0])
+        self.assertIn("b/", spinner.write.call_args_list[0].args[0])
+
+    def test_narrow_terminal_collapses_to_single_column(self):
+        spinner = Mock()
+        sections = [
+            ("a", [{"name": name} for name in ("aa", "bb")]),
+            ("b", [{"name": name} for name in ("cc", "dd")]),
+        ]
+
+        with patch.object(
+            benchmark.shutil, "get_terminal_size", return_value=Mock(columns=12)
+        ):
+            benchmark.write_model_grid(sections, 4, spinner)
+
+        lines = [item.args[0] for item in spinner.write.call_args_list]
+        self.assertEqual(
+            lines,
+            [
+                "      a/",
+                "  [1] aa",
+                "  [2] bb",
+                "",
+                "      b/",
+                "  [3] cc",
+                "  [4] dd",
+            ],
         )
 
     def test_duplicated_names_show_full_name(self):
         spinner = Mock()
-        models = [
-            {"name": "same", "full_name": "first/same"},
-            {"name": "same", "full_name": "second/same"},
-            {"name": "other", "full_name": "other"},
+        sections = [
+            ("one", [{"name": "same", "full_name": "first/same"}]),
+            (
+                "two",
+                [
+                    {"name": "same", "full_name": "second/same"},
+                    {"name": "other", "full_name": "other"},
+                ],
+            ),
         ]
 
         with patch.object(
@@ -1029,11 +1107,13 @@ class WriteModelGridTests(unittest.TestCase):
             "get_terminal_size",
             return_value=Mock(columns=120),
         ):
-            benchmark.write_model_grid(models, 1, 3, spinner, {"same"})
+            benchmark.write_model_grid(sections, 3, spinner, {"same"})
 
         written = "\n".join(
             item.args[0] for item in spinner.write.call_args_list
         )
+        self.assertIn("one/", written)
+        self.assertIn("two/", written)
         self.assertIn("first/same", written)
         self.assertIn("second/same", written)
         self.assertIn("[3] other", written)

@@ -236,20 +236,67 @@ def display_name(model, duplicated_names=frozenset()):
     return model["name"]
 
 
-def write_model_grid(models, start_number, total_count, spinner,
+def build_grid_sections(provider_results):
+    sections = []
+    for provider_id, _, found, provider_models in provider_results:
+        if not found or not provider_models:
+            continue
+        if PROVIDERS[provider_id]["protocol"] == "opencode_cli":
+            groups = {}
+            for model in provider_models:
+                prefix = model["full_name"].split("/", 1)[0]
+                groups.setdefault(prefix, []).append(model)
+            sections.extend(groups.items())
+        else:
+            sections.append((provider_id, provider_models))
+    return sections
+
+
+def write_model_grid(sections, total_count, spinner,
                      duplicated_names=frozenset()):
-    cells = [
-        f"[{format_list_number(number, total_count)}] "
-        f"{display_name(model, duplicated_names)}"
-        for number, model in enumerate(models, start_number)
-    ]
-    cell_width = max(map(len, cells)) + 2
-    terminal_width = shutil.get_terminal_size((120, 24)).columns - 2
-    columns = max(1, terminal_width // cell_width)
-    for row in range(0, len(cells), columns):
-        spinner.write("  " + "".join(
-            cell.ljust(cell_width) for cell in cells[row:row + columns]
-        ).rstrip())
+    items = []
+    number = 0
+    for source, section_models in sections:
+        tag = f"{' ' * (len(str(total_count)) + 3)}{source}/"
+        items.append((tag, True, tag))
+        for model in section_models:
+            number += 1
+            items.append((
+                tag,
+                False,
+                f"[{format_list_number(number, total_count)}] "
+                f"{display_name(model, duplicated_names)}",
+            ))
+    available_width = shutil.get_terminal_size((120, 24)).columns - 2
+    min_width = min(len(text) for _, _, text in items) + 2
+    max_columns = max(1, min(len(items), available_width // min_width))
+    for columns in range(max_columns, 0, -1):
+        rows = max(1, (len(items) + columns - 1) // columns)
+        while True:
+            grid = [[]]
+            for tag, is_tag, text in items:
+                if len(grid[-1]) >= rows:
+                    grid.append([])
+                if is_tag and grid[-1] and len(grid[-1]) >= rows - 2:
+                    grid.append([])
+                if is_tag and grid[-1]:
+                    grid[-1].append("")
+                if not grid[-1] and not is_tag:
+                    grid[-1].append(tag)
+                grid[-1].append(text)
+            if len(grid) <= columns:
+                break
+            rows += 1
+
+        widths = [max(map(len, column)) + 2 for column in grid]
+        if sum(widths) <= available_width or columns == 1:
+            break
+
+    for row in range(max(map(len, grid))):
+        spinner.write(("  " + "".join(
+            (column[row] if row < len(column) else "").ljust(width)
+            for column, width in zip(grid, widths)
+        )).rstrip())
 
 
 def source_name(source):
@@ -924,12 +971,13 @@ def run(spinner, argv_model="", argv_test=0):
         if unavailable:
             spinner.write("\n" + "\n".join(unavailable))
 
-        found_models = list(itertools.chain.from_iterable(
-            models for _, _, found, models in results if found
+        sections = build_grid_sections(results)
+        models = list(itertools.chain.from_iterable(
+            section_models for _, section_models in sections
         ))
-        return results, found_models, width
+        return results, sections, models, width
 
-    provider_results, models, provider_width = find_models()
+    provider_results, sections, models, provider_width = find_models()
     if not models:
         spinner.write(lang("no_models"))
         return
@@ -946,7 +994,6 @@ def run(spinner, argv_model="", argv_test=0):
         duplicated_names = frozenset(
             name for name, count in name_counts.items() if count > 1
         )
-        start_number = 1
         for _, provider, found, provider_models in provider_results:
             if found:
                 spinner.write(
@@ -957,19 +1004,17 @@ def run(spinner, argv_model="", argv_test=0):
                         location=location_label(provider["location"]),
                     )
                 )
-                if provider_models:
-                    write_model_grid(
-                        provider_models, start_number, len(models), spinner,
-                        duplicated_names,
-                    )
-                start_number += len(provider_models)
+        if sections:
+            write_model_grid(
+                sections, len(models), spinner, duplicated_names,
+            )
 
         model = None
         while model is None:
             choice = argv_model or spinner.input(lang("choose_model")).strip()
             if not argv_model and choice.lower() == "r":
                 spinner.write(f"\n{searching_models}")
-                provider_results, models, provider_width = find_models()
+                provider_results, sections, models, provider_width = find_models()
                 if not models:
                     spinner.write(lang("no_models"))
                     return
