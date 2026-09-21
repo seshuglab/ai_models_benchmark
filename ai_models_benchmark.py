@@ -553,6 +553,7 @@ def run_lmstudio_api_test(provider, model, prompt, test_file, spinner):
 
     end_time = time.perf_counter()
     stats = final_result.get("stats") or {}
+    server_first_token = stats.get("time_to_first_token_seconds")
     full_response = "".join(response_parts)
     if not full_response:
         full_response = "".join(
@@ -563,8 +564,12 @@ def run_lmstudio_api_test(provider, model, prompt, test_file, spinner):
 
     return {
         **model,
-        "first_token_seconds": stats.get("time_to_first_token_seconds") or (
-            first_token_time - start_time if first_token_time is not None else None
+        "first_token_seconds": server_first_token
+        if server_first_token is not None
+        else (
+            first_token_time - start_time
+            if first_token_time is not None
+            else None
         ),
         "total_seconds": end_time - start_time,
         "tokens_per_second": stats.get("tokens_per_second"),
@@ -755,8 +760,8 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "tokens_generated": output_tokens or None,
         "prompt_tokens": prompt_tokens or None,
         "total_tokens": total_tokens or None,
-        "reasoning_tokens": reasoning_tokens,
-        "cache_read_tokens": cache_read_tokens,
+        "reasoning_tokens": reasoning_tokens or None,
+        "cache_read_tokens": cache_read_tokens or None,
         "load_seconds": None,
         "response": "\n\n".join(response_parts),
         "agent_steps": step_count,
