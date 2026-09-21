@@ -720,6 +720,12 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             agent_work_dir.rmdir()
             relative_work_dir = None
     except Exception as error:
+        try:
+            if process.poll() is None:
+                process.kill()
+                process.wait(timeout=10)
+        except Exception:
+            pass
         result = make_error_result(model, error)
         result["agent_work_dir"] = relative_work_dir
         result["agent_steps"] = step_count
