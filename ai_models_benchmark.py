@@ -231,7 +231,7 @@ def format_list_number(number, count):
 
 
 def display_name(model, duplicated_names=frozenset()):
-    if model["name"] in duplicated_names:
+    if model["name"].casefold() in duplicated_names:
         return model["full_name"]
     return model["name"]
 
@@ -990,7 +990,8 @@ def run(spinner, argv_model="", argv_test=0):
     while True:
         name_counts = {}
         for item in models:
-            name_counts[item["name"]] = name_counts.get(item["name"], 0) + 1
+            key = item["name"].casefold()
+            name_counts[key] = name_counts.get(key, 0) + 1
         duplicated_names = frozenset(
             name for name, count in name_counts.items() if count > 1
         )

@@ -360,13 +360,16 @@ class RunTests(unittest.TestCase):
     def test_interactive_selection_retries_duplicate_name(self):
         models = [
             {"source": "ollama", "name": "same", "full_name": "first"},
-            {"source": "ollama", "name": "same", "full_name": "second"},
+            {"source": "ollama", "name": "SAME", "full_name": "second"},
         ]
         spinner, _, _, prepare_model, run_test, _ = self.run_with_test_choice(
             "1", input_values=["same", "1", "1"], available_models=models
         )
 
         spinner.write.assert_any_call("\nНайдено моделей с именем same: 2\n  first\n  second")
+        written = "\n".join(str(call.args[0]) for call in spinner.write.call_args_list)
+        self.assertIn("[1] first", written)
+        self.assertIn("[2] second", written)
         self.assertEqual(spinner.input.call_count, 3)
         prepare_model.assert_called_once()
         run_test.assert_called_once()
