@@ -530,9 +530,9 @@ def run_lmstudio_api_test(provider, model, prompt, test_file, spinner):
         with urllib.request.urlopen(request, timeout=1800) as response:
             for raw_line in response:
                 line = raw_line.decode("utf-8").strip()
-                if not line.startswith("data: "):
+                if not line.startswith("data:"):
                     continue
-                event = json.loads(line[6:])
+                event = json.loads(line[5:].strip())
                 event_type = event.get("type")
 
                 if event_type == "message.delta":
