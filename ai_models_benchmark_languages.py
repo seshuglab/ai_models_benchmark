@@ -209,6 +209,12 @@ def lang(key, **values):
         )
     if values:
         return template.format(**values)
+    missing = _format_fields(template)
+    if missing:
+        raise LanguageError(
+            f"Localization error: language '{_LANGUAGE}', key '{key}', "
+            f"missing values {sorted(missing)}"
+        )
     return template
 
 
