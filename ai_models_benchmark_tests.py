@@ -941,9 +941,12 @@ class CalculateRateTests(unittest.TestCase):
         self.assertEqual(benchmark.calculate_rate(120, 4), 30)
 
     def test_unavailable_without_count_or_time(self):
-        for count, seconds in [(None, 1), (1, None), (0, 1), (1, 0)]:
+        for count, seconds in [(None, 1), (1, None), (1, 0)]:
             with self.subTest(count=count, seconds=seconds):
                 self.assertIsNone(benchmark.calculate_rate(count, seconds))
+
+    def test_zero_count_returns_zero_rate(self):
+        self.assertEqual(benchmark.calculate_rate(0, 1), 0.0)
 
 
 class PrintResultTests(unittest.TestCase):

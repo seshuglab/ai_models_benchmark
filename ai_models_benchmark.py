@@ -181,7 +181,9 @@ def format_count(value):
 
 
 def calculate_rate(count, seconds):
-    return count / seconds if count and seconds else None
+    if not seconds or count is None:
+        return None
+    return count / seconds
 
 
 def metric_lines(result):
