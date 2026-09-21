@@ -473,7 +473,7 @@ def run_ollama_api_test(provider, model, prompt, test_file, spinner):
     try:
         with urllib.request.urlopen(request, timeout=1800) as response:
             for raw_line in response:
-                chunk = json.loads(raw_line.decode("utf-8"))
+                chunk = json.loads(raw_line.decode("utf-8").strip() or "{}")
                 text = chunk.get("response", "")
                 if text:
                     if first_token_time is None:
