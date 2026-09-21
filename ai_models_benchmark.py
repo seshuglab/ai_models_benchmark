@@ -376,7 +376,10 @@ def get_lmstudio_api_models(provider_id, provider):
 def get_tests():
     tests = []
     for test_file in sorted(PROGRAM_DIR.glob("[0-9][0-9]_*.md")):
-        lines = test_file.read_text(encoding="utf-8").splitlines()
+        try:
+            lines = test_file.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError) as error:
+            raise RuntimeError(f"{test_file.name}: {error}") from error
         if lines and lines[0].startswith("#"):
             tests.append(
                 (
