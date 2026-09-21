@@ -389,14 +389,17 @@ def get_tests():
 
 
 def get_running_local_models(provider):
-    result = subprocess.run(
-        provider["running_command"],
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-        check=True,
-    )
+    try:
+        result = subprocess.run(
+            provider["running_command"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
     lines = [line for line in result.stdout.splitlines()[1:] if line.strip()]
     return [line.split()[0] for line in lines]
 
