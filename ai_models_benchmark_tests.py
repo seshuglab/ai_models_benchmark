@@ -813,7 +813,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("# ОШИБКА:\nAgent Test завершился с кодом 7", report)
         self.assertIn("[1][ОТВЕТ]\nЧастичный ответ", report)
 
-    def test_lmstudio_flow_creates_expected_report(self):
+    def test_lmstudio_flow_skips_empty_data_and_creates_expected_report(self):
         response = FakeSseResponse(
             [
                 {"type": "chat.start", "model_instance_id": "test/lm-model"},
@@ -836,6 +836,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                 },
             ]
         )
+        response.lines.insert(0, b"data:\n")
 
         report = self.run_isolated(
             "3",
