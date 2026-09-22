@@ -482,6 +482,10 @@ def prepare_lmstudio_model(provider, selected_model, spinner):
         running_models = json.loads(result.stdout)
     except (OSError, subprocess.SubprocessError, ValueError):
         running_models = []
+    if not isinstance(running_models, list) or not all(
+        isinstance(model, dict) for model in running_models
+    ):
+        raise RuntimeError("LM Studio: unexpected response from lms ps --json")
     selected_key = selected_model["full_name"]
     selected_loaded = False
 

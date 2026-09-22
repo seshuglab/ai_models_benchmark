@@ -984,6 +984,25 @@ class LmStudioPreparationTests(unittest.TestCase):
         )
         spinner.write.assert_any_call("Загружаю модель: Selected Model")
 
+    def test_rejects_unexpected_running_models_structure(self):
+        for data in (None, {}, ["not-a-model"]):
+            with self.subTest(data=data):
+                spinner = Mock()
+                running = Mock(stdout=json.dumps(data))
+
+                with patch.object(
+                    benchmark.subprocess, "run", return_value=running
+                ) as run:
+                    with self.assertRaisesRegex(
+                        RuntimeError,
+                        "LM Studio: unexpected response from lms ps --json",
+                    ):
+                        benchmark.prepare_lmstudio_model(
+                            benchmark.PROVIDERS["lmstudio"], self.model, spinner
+                        )
+
+                run.assert_called_once()
+
 
 class LmStudioModelsTests(unittest.TestCase):
     def test_returns_only_llm_models(self):
