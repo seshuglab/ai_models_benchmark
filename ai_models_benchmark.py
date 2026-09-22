@@ -13,6 +13,7 @@ from pathlib import Path
 
 
 from ai_models_benchmark_languages import (
+    LANGUAGES,
     LanguageError,
     init_language_from_argv,
     lang,
@@ -323,6 +324,22 @@ def show_help(spinner):
 
 def read_arguments(spinner):
     if "--help" in sys.argv:
+        show_help(spinner)
+        raise SystemExit
+
+    known_options = {
+        "--help",
+        "--no-spinner",
+        "--opencode-json-log",
+        *(f"--{code}" for code in LANGUAGES),
+    }
+    unknown_options = [
+        argument
+        for argument in sys.argv[1:]
+        if argument.startswith("--") and argument not in known_options
+    ]
+    if unknown_options:
+        spinner.write(lang("unknown_option", option=unknown_options[0]))
         show_help(spinner)
         raise SystemExit
 

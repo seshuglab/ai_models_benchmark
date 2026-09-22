@@ -602,6 +602,30 @@ class ReadArgumentsTests(unittest.TestCase):
             languages.lang("exit_prompt")
         )
 
+    def test_unknown_option_stops_before_run(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru", "--spiner"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.object(benchmark, "run") as run,
+        ):
+            with self.assertRaises(SystemExit):
+                benchmark.main()
+
+        run.assert_not_called()
+        spinner.write.assert_any_call("Неизвестный параметр: --spiner\n")
+        self.assertTrue(
+            any(
+                "Использование:" in call.args[0]
+                for call in spinner.write.call_args_list
+            )
+        )
+        spinner.input.assert_called_once_with(languages.lang("exit_prompt"))
+
     def test_main_handles_keyboard_interrupt_without_traceback(self):
         spinner = Mock()
         spinner_context = Mock()

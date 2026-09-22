@@ -49,6 +49,7 @@ LANGUAGES = {
             "  --opencode-json-log     Сохранять JSON-события OpenCode"
         ),
         "args_error": "Укажите модель, номер теста или X.\n",
+        "unknown_option": "Неизвестный параметр: {option}\n",
         "model_already_loaded": "Выбранная модель уже загружена в память.",
         "stopping_other_model": "Останавливаю другую модель: {model}",
         "loading_model": "Загружаю модель: {name}",
@@ -134,6 +135,7 @@ LANGUAGES = {
             "  --opencode-json-log     Save OpenCode JSON events"
         ),
         "args_error": "Specify the model, test number or X.\n",
+        "unknown_option": "Unknown option: {option}\n",
         "model_already_loaded": "Selected model is already loaded in memory.",
         "stopping_other_model": "Stopping another model: {model}",
         "loading_model": "Loading model: {name}",
