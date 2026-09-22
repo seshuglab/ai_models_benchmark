@@ -136,7 +136,7 @@ class RunTests(unittest.TestCase):
         model = {
             "source": provider_id,
             "name": "test-model",
-            "full_name": "test-model",
+            "full_name": "provider/test-model",
         }
         tests = [
             ("01_test.md", "Первый тест", "prompt 1"),
@@ -249,7 +249,7 @@ class RunTests(unittest.TestCase):
             all(title.startswith(program) for title in titles), titles
         )
         self.assertEqual(titles[1], program)
-        self.assertIn("test-model", titles[2])
+        self.assertIn("provider/test-model", titles[2])
         self.assertIn("1", titles[2])
 
     def test_window_title_shows_batch_progress(self):

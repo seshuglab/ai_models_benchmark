@@ -1164,7 +1164,7 @@ def run(spinner, argv_model="", argv_test=0):
                 lang(
                     "window_test",
                     program=program_title,
-                    model=model["name"],
+                    model=model["full_name"],
                     test=title_number,
                 )
             )
