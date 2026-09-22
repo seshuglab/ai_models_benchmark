@@ -1496,6 +1496,70 @@ class OpencodeRunTests(unittest.TestCase):
         process.kill.assert_called_once_with()
         process.wait.assert_called_once_with(timeout=10)
 
+    def test_stream_error_keeps_partial_metrics_and_json_log(self):
+        languages.set_language("ru")
+        events = [
+            {"type": "text", "text": "Частичный ответ"},
+            {
+                "type": "step_finish",
+                "tokens": {
+                    "input": 10,
+                    "output": 4,
+                    "reasoning": 2,
+                    "total": 19,
+                    "cache": {"read": 3},
+                },
+            },
+        ]
+        valid_lines = [
+            json.dumps(event, ensure_ascii=False) + "\n" for event in events
+        ]
+        process = Mock()
+        process.stdout = iter([*valid_lines, "{broken\n"])
+        process.poll.return_value = None
+        spinner = Mock()
+        model = {
+            "source": "opencode",
+            "name": "test-model",
+            "full_name": "provider/test-model",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            test_file = program_dir / "01_test.md"
+            test_file.write_text("# Test\nprompt", encoding="utf-8")
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.object(benchmark.subprocess, "Popen", return_value=process),
+                patch.object(
+                    benchmark.time,
+                    "perf_counter",
+                    side_effect=[100.0, 101.0, 102.0, 103.0, 104.0],
+                ),
+                patch.object(benchmark, "SAVE_AGENT_JSON_LOG", True),
+            ):
+                result = benchmark.run_opencode_cli_test(
+                    benchmark.PROVIDERS["opencode"],
+                    model,
+                    "prompt",
+                    test_file,
+                    spinner,
+                )
+
+        self.assertIn("error", result)
+        self.assertEqual(result["first_token_seconds"], 2.0)
+        self.assertEqual(result["total_seconds"], 4.0)
+        self.assertEqual(result["prompt_tokens"], 10)
+        self.assertEqual(result["tokens_generated"], 4)
+        self.assertEqual(result["reasoning_tokens"], 2)
+        self.assertEqual(result["cache_read_tokens"], 3)
+        self.assertEqual(result["total_tokens"], 19)
+        self.assertEqual(result["response"], "Частичный ответ")
+        self.assertEqual(result["json_event_blocks"][-1], (None, "{broken"))
+        self.assertTrue(result["json_event_log"].endswith("{broken"))
+        process.kill.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=10)
+
 
 class LanguageTableTests(unittest.TestCase):
     def test_key_sets_match(self):
@@ -1960,7 +2024,15 @@ class LocalizedScenarioTests(unittest.TestCase):
                     patch.object(
                         benchmark.time,
                         "perf_counter",
-                        side_effect=[100.0, 100.5, 101.0, 102.0],
+                        side_effect=[
+                            100.0,
+                            100.5,
+                            101.0,
+                            102.0,
+                            102.5,
+                            103.0,
+                            104.0,
+                        ],
                     ),
                 ):
                     result = benchmark.run_opencode_cli_test(
@@ -1968,6 +2040,7 @@ class LocalizedScenarioTests(unittest.TestCase):
                     )
                 self.assertEqual(result["full_name"], "provider/Technical-Model_1")
                 self.assertEqual(result["name"], "Technical")
+                self.assertNotIn("error", result)
                 command = popen.call_args.args[0]
                 self.assertEqual(
                     command[: len(provider["run_command"])], provider["run_command"]
@@ -1980,7 +2053,7 @@ class LocalizedScenarioTests(unittest.TestCase):
                 self.assertIn("my-tool", result["event_log"])
                 self.assertIn("my-status", result["event_log"])
                 work_dir = result["agent_work_dir"]
-                self.assertTrue(work_dir)
+                self.assertIsNone(work_dir)
                 with (
                     patch.object(benchmark, "PROGRAM_DIR", program_dir),
                 ):
@@ -1990,7 +2063,6 @@ class LocalizedScenarioTests(unittest.TestCase):
                 content = (program_dir / report_name).read_text(encoding="utf-8")
                 for expected in (
                     "Technical",
-                    work_dir,
                     "my-tool",
                     "my-status",
                 ):

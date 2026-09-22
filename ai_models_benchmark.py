@@ -718,6 +718,9 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     cache_read_tokens = None
     total_tokens = None
     process = None
+    return_code = None
+    run_error = None
+    end_time = None
 
     try:
         process = subprocess.Popen(
@@ -816,6 +819,12 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             agent_work_dir.rmdir()
             relative_work_dir = None
     except (Exception, KeyboardInterrupt) as error:
+        end_time = time.perf_counter()
+        if SAVE_AGENT_JSON_LOG and len(json_blocks) < len(json_events):
+            json_blocks.extend(
+                (None, raw_event)
+                for raw_event in json_events[len(json_blocks):]
+            )
         try:
             if process is not None and process.poll() is None:
                 process.kill()
@@ -824,13 +833,10 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             pass
         if isinstance(error, KeyboardInterrupt):
             raise
-        result = make_error_result(model, error)
-        result["agent_work_dir"] = relative_work_dir
-        result["agent_steps"] = step_count
-        result["event_log"] = "\n\n".join(event_log)
-        return result
+        run_error = error
 
-    end_time = time.perf_counter()
+    if end_time is None:
+        end_time = time.perf_counter()
     total_seconds = end_time - start_time
     result = {
         **model,
@@ -852,7 +858,9 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "json_event_log": "\n".join(json_events),
         "json_event_blocks": json_blocks,
     }
-    if return_code:
+    if run_error is not None:
+        result["error"] = str(run_error)
+    elif return_code:
         result["error"] = lang(
             "provider_exit_code",
             title=provider["title"],
