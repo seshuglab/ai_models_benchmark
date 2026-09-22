@@ -695,11 +695,11 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     json_events = []
     json_blocks = []
     step_count = 0
-    prompt_tokens = 0
-    output_tokens = 0
-    reasoning_tokens = 0
-    cache_read_tokens = 0
-    total_tokens = 0
+    prompt_tokens = None
+    output_tokens = None
+    reasoning_tokens = None
+    cache_read_tokens = None
+    total_tokens = None
     process = None
 
     try:
@@ -765,12 +765,21 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                     )
             elif event_type == "step_finish":
                 tokens = opencode_tokens(event)
-                prompt_tokens += tokens.get("input", 0) or 0
-                output_tokens += tokens.get("output", 0) or 0
-                reasoning_tokens += tokens.get("reasoning", 0) or 0
-                total_tokens += tokens.get("total", 0) or 0
+                if "input" in tokens:
+                    prompt_tokens = (prompt_tokens or 0) + (tokens.get("input") or 0)
+                if "output" in tokens:
+                    output_tokens = (output_tokens or 0) + (tokens.get("output") or 0)
+                if "reasoning" in tokens:
+                    reasoning_tokens = (reasoning_tokens or 0) + (
+                        tokens.get("reasoning") or 0
+                    )
+                if "total" in tokens:
+                    total_tokens = (total_tokens or 0) + (tokens.get("total") or 0)
                 cache = tokens.get("cache") or {}
-                cache_read_tokens += cache.get("read", 0) or 0
+                if "read" in cache:
+                    cache_read_tokens = (cache_read_tokens or 0) + (
+                        cache.get("read") or 0
+                    )
             elif event_type == "error":
                 error = event.get("error")
                 if not isinstance(error, str):
@@ -813,11 +822,11 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         ),
         "total_seconds": total_seconds,
         "tokens_per_second": calculate_rate(output_tokens, total_seconds),
-        "tokens_generated": output_tokens or None,
-        "prompt_tokens": prompt_tokens or None,
-        "total_tokens": total_tokens or None,
-        "reasoning_tokens": reasoning_tokens or None,
-        "cache_read_tokens": cache_read_tokens or None,
+        "tokens_generated": output_tokens,
+        "prompt_tokens": prompt_tokens,
+        "total_tokens": total_tokens,
+        "reasoning_tokens": reasoning_tokens,
+        "cache_read_tokens": cache_read_tokens,
         "load_seconds": None,
         "response": "\n\n".join(response_parts),
         "agent_steps": step_count,

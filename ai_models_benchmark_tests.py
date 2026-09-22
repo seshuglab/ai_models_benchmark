@@ -813,6 +813,47 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("# ОШИБКА:\nAgent Test завершился с кодом 7", report)
         self.assertIn("[1][ОТВЕТ]\nЧастичный ответ", report)
 
+    def test_opencode_distinguishes_zero_and_missing_token_metrics(self):
+        cases = [
+            (
+                {
+                    "input": 0,
+                    "output": 0,
+                    "reasoning": 0,
+                    "total": 0,
+                    "cache": {"read": 0},
+                },
+                "0",
+                "0.00",
+            ),
+            ({}, "недоступно", "недоступно"),
+        ]
+        for tokens, expected_count, expected_speed in cases:
+            with self.subTest(tokens=tokens):
+                process = FakeProcess(
+                    [{"type": "step_finish", "tokens": tokens}]
+                )
+                report = self.run_isolated(
+                    "2",
+                    patch.object(
+                        benchmark.subprocess, "Popen", return_value=process
+                    ),
+                    [100.0, 100.0, 101.0],
+                )
+
+                self.assertIn(
+                    f"Эффективная скорость агента: {expected_speed} токен/сек",
+                    report,
+                )
+                for label in (
+                    "Входных токенов без кэша",
+                    "Сгенерировано токенов",
+                    "Токенов размышления",
+                    "Токенов из кэша",
+                    "Всего токенов",
+                ):
+                    self.assertIn(f"{label}: {expected_count}", report)
+
     def test_lmstudio_flow_skips_empty_data_and_creates_expected_report(self):
         response = FakeSseResponse(
             [
