@@ -699,7 +699,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
             self.assertEqual(len(reports), 1)
             return reports[0].read_text(encoding="utf-8")
 
-    def test_ollama_flow_creates_expected_report(self):
+    def test_ollama_flow_skips_empty_line_and_creates_expected_report(self):
         response = FakeHttpResponse(
             [
                 {"response": "Тестовый ", "done": False},
@@ -713,6 +713,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                 },
             ]
         )
+        response.lines.insert(0, b"\n")
 
         report = self.run_isolated(
             "1",
@@ -854,7 +855,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                 ):
                     self.assertIn(f"{label}: {expected_count}", report)
 
-    def test_lmstudio_flow_skips_empty_data_and_creates_expected_report(self):
+    def test_lmstudio_flow_accepts_data_without_space_and_skips_empty_data(self):
         response = FakeSseResponse(
             [
                 {"type": "chat.start", "model_instance_id": "test/lm-model"},
@@ -877,6 +878,12 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                 },
             ]
         )
+        response.lines = [
+            line.replace(b"data: ", b"data:", 1)
+            if line.startswith(b"data: ")
+            else line
+            for line in response.lines
+        ]
         response.lines.insert(0, b"data:\n")
 
         report = self.run_isolated(
@@ -965,6 +972,25 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         languages.set_language("ru")
 
 
+class LocalModelPreparationTests(unittest.TestCase):
+    def test_running_models_returns_empty_list_when_command_is_missing(self):
+        provider = benchmark.PROVIDERS["ollama"]
+        with patch.object(
+            benchmark.subprocess, "run", side_effect=FileNotFoundError
+        ) as run:
+            models = benchmark.get_running_local_models(provider)
+
+        self.assertEqual(models, [])
+        run.assert_called_once_with(
+            provider["running_command"],
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            check=True,
+        )
+
+
 class LmStudioPreparationTests(unittest.TestCase):
     def setUp(self):
         languages.set_language("ru")
@@ -1025,6 +1051,22 @@ class LmStudioPreparationTests(unittest.TestCase):
             call(["lms", "load", "selected/model", "-y"], check=True),
         )
         spinner.write.assert_any_call("Загружаю модель: Selected Model")
+
+    def test_loads_selected_model_after_invalid_running_models_json(self):
+        spinner = Mock()
+        running = Mock(stdout="not-json")
+
+        with patch.object(
+            benchmark.subprocess, "run", side_effect=[running, Mock()]
+        ) as run:
+            benchmark.prepare_lmstudio_model(
+                benchmark.PROVIDERS["lmstudio"], self.model, spinner
+            )
+
+        self.assertEqual(
+            run.call_args_list[-1],
+            call(["lms", "load", "selected/model", "-y"], check=True),
+        )
 
     def test_rejects_unexpected_running_models_structure(self):
         for data in (None, {}, ["not-a-model"]):
@@ -1570,6 +1612,13 @@ class LangFunctionTests(unittest.TestCase):
         languages.set_language("en")
         with self.assertRaises(languages.LanguageError):
             languages.lang("no_such_key")
+
+    def test_missing_template_values_raise_language_error(self):
+        languages.set_language("ru")
+        with self.assertRaisesRegex(
+            languages.LanguageError, "loading_model.*missing values"
+        ):
+            languages.lang("loading_model")
 
     def test_formatting_real_values(self):
         languages.set_language("ru")
