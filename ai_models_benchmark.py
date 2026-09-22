@@ -693,6 +693,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     reasoning_tokens = 0
     cache_read_tokens = 0
     total_tokens = 0
+    process = None
 
     try:
         process = subprocess.Popen(
@@ -781,13 +782,15 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         if not any(agent_work_dir.iterdir()):
             agent_work_dir.rmdir()
             relative_work_dir = None
-    except Exception as error:
+    except (Exception, KeyboardInterrupt) as error:
         try:
-            if process.poll() is None:
+            if process is not None and process.poll() is None:
                 process.kill()
                 process.wait(timeout=10)
         except Exception:
             pass
+        if isinstance(error, KeyboardInterrupt):
+            raise
         result = make_error_result(model, error)
         result["agent_work_dir"] = relative_work_dir
         result["agent_steps"] = step_count

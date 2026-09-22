@@ -1335,6 +1335,41 @@ class AddOpencodeEventTests(unittest.TestCase):
         self.assertEqual(event_log, [block])
 
 
+class OpencodeRunTests(unittest.TestCase):
+    def test_interrupt_kills_process_and_reraises(self):
+        languages.set_language("ru")
+        process = Mock()
+        process.stdout = iter([json.dumps({"type": "step_start"}) + "\n"])
+        process.poll.return_value = None
+        spinner = Mock()
+        spinner.write.side_effect = [None, KeyboardInterrupt]
+        model = {
+            "source": "opencode",
+            "name": "test-model",
+            "full_name": "provider/test-model",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            test_file = program_dir / "01_test.md"
+            test_file.write_text("# Test\nprompt", encoding="utf-8")
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.object(benchmark.subprocess, "Popen", return_value=process),
+                self.assertRaises(KeyboardInterrupt),
+            ):
+                benchmark.run_opencode_cli_test(
+                    benchmark.PROVIDERS["opencode"],
+                    model,
+                    "prompt",
+                    test_file,
+                    spinner,
+                )
+
+        process.kill.assert_called_once_with()
+        process.wait.assert_called_once_with(timeout=10)
+
+
 class LanguageTableTests(unittest.TestCase):
     def test_key_sets_match(self):
         self.assertEqual(
