@@ -33,14 +33,15 @@ class FakeHttpResponse:
 
 
 class FakeProcess:
-    def __init__(self, events):
+    def __init__(self, events, return_code=0):
         self.stdout = io.StringIO(
             "".join(json.dumps(event, ensure_ascii=False) + "\n" for event in events)
         )
         self.stderr = io.StringIO("")
+        self.return_code = return_code
 
     def wait(self):
-        return 0
+        return self.return_code
 
 
 class FakeSseResponse:
@@ -780,6 +781,37 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         cleaned_response = "Однозначный тестовый ответ\n\nВторая строка"
         self.assertIn(f"[3][ОТВЕТ]\n{cleaned_response}", report)
         self.assertIn(f"# ОТВЕТ МОДЕЛИ:\n{cleaned_response}\n", report)
+
+    def test_opencode_nonzero_exit_keeps_partial_result(self):
+        process = FakeProcess(
+            [
+                {"type": "step_start"},
+                {"type": "text", "text": "Частичный ответ"},
+                {
+                    "type": "step_finish",
+                    "tokens": {
+                        "input": 10,
+                        "output": 4,
+                        "reasoning": 2,
+                        "total": 19,
+                        "cache": {"read": 3},
+                    },
+                },
+            ],
+            return_code=7,
+        )
+
+        report = self.run_isolated(
+            "2",
+            patch.object(benchmark.subprocess, "Popen", return_value=process),
+            [100.0, 100.0, 101.0, 102.0, 103.0, 104.0],
+        )
+
+        self.assertIn("Входных токенов без кэша: 10", report)
+        self.assertIn("Сгенерировано токенов: 4", report)
+        self.assertIn("Шагов агента: 1", report)
+        self.assertIn("# ОШИБКА:\nAgent Test завершился с кодом 7", report)
+        self.assertIn("[1][ОТВЕТ]\nЧастичный ответ", report)
 
     def test_lmstudio_flow_creates_expected_report(self):
         response = FakeSseResponse(
@@ -1770,6 +1802,9 @@ class LocalizedScenarioTests(unittest.TestCase):
                 command = popen.call_args.args[0]
                 self.assertEqual(
                     command[: len(provider["run_command"])], provider["run_command"]
+                )
+                self.assertIs(
+                    popen.call_args.kwargs["stderr"], benchmark.subprocess.DEVNULL
                 )
                 self.assertIn("--model", command)
                 self.assertIn("provider/Technical-Model_1", command)

@@ -698,7 +698,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         process = subprocess.Popen(
             provider["run_command"] + ["--model", model["full_name"], prompt],
             stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
             text=True,
             encoding="utf-8",
             errors="replace",
@@ -777,7 +777,6 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             if SAVE_AGENT_JSON_LOG:
                 json_blocks.append((block, raw_event))
 
-        error_text = process.stderr.read().strip()
         return_code = process.wait()
         if not any(agent_work_dir.iterdir()):
             agent_work_dir.rmdir()
@@ -818,12 +817,10 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "json_event_blocks": json_blocks,
     }
     if return_code:
-        result["error"] = error_text or (
-            lang(
-                "provider_exit_code",
-                title=provider["title"],
-                code=return_code,
-            )
+        result["error"] = lang(
+            "provider_exit_code",
+            title=provider["title"],
+            code=return_code,
         )
     return result
 
