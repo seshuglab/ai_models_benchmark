@@ -1050,6 +1050,7 @@ def run(spinner, argv_model="", argv_test=0):
                     )
                 )
         if sections:
+            spinner.write("")
             write_model_grid(
                 sections, len(models), spinner, duplicated_names,
             )

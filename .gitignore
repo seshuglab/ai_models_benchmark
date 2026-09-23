@@ -14,6 +14,9 @@ report_archive/
 # Локальный конфиг OpenCode
 opencode.json
 
+# Локальные настройки IntelliJ IDEA
+.idea/
+
 # Кэш Python
 __pycache__/
 

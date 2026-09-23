@@ -197,6 +197,15 @@ class RunTests(unittest.TestCase):
         spinner.write.assert_any_call("\nТест [2/2]: Второй тест\n")
         spinner.write.assert_any_call("Пройдено тестов: 2")
 
+    def test_model_grid_has_spacing_after_provider_list(self):
+        spinner, *_ = self.run_with_test_choice("1")
+
+        written = [item.args[0] for item in spinner.write.call_args_list]
+        provider_index = next(
+            index for index, text in enumerate(written) if "Ollama" in text
+        )
+        self.assertEqual(written[provider_index + 1], "")
+
     def test_header_rule_follows_wider_line(self):
         spinner, *_ = self.run_with_test_choice("1")
         title = f"AI MODELS BENCHMARK v{benchmark.VERSION}"
@@ -1665,7 +1674,7 @@ class LangFunctionTests(unittest.TestCase):
                 count=1,
                 location="локально",
             ),
-            "\nOllama    - моделей: 1 (локально)\n",
+            "Ollama    - моделей: 1 (локально)",
         )
         languages.set_language("en")
         self.assertEqual(
@@ -1675,7 +1684,7 @@ class LangFunctionTests(unittest.TestCase):
                 count=52,
                 location="cloud",
             ),
-            "\nOpenCode  - models: 52 (cloud)\n",
+            "OpenCode  - models: 52 (cloud)",
         )
         languages.set_language("ru")
 
