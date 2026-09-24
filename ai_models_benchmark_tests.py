@@ -1011,6 +1011,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertEqual(lines[journal_index + 1], "")
         self.assertTrue(lines[journal_index + 2].startswith("Формат шага:"))
         step_index = lines.index("[0](0/0/0/0)[АГЕНТ] Шаг 1")
+        self.assertEqual(lines[step_index - 1], "")
         self.assertEqual(lines[step_index + 1], '{"type": "step_start"}')
         answer_index = lines.index("[1][ОТВЕТ]")
         self.assertEqual(lines[answer_index + 1], "Ответ")

@@ -1005,7 +1005,7 @@ def save_report(result, test_file, test_title, prompt):
             f"{lang('report_test')}: {test_title}",
             f"{lang('report_test_file')}: {test_file.name}",
         ]
-        log_body = [result.get("agent_log_legend", "")]
+        log_body = [result.get("agent_log_legend", ""), ""]
         for header_block, raw_json in result.get("json_event_blocks", []):
             if header_block:
                 log_body.append(header_block)
