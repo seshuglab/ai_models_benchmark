@@ -1,4 +1,4 @@
-# AI Models Benchmark v0.9n
+# AI Models Benchmark v0.9o
 
 Консольный инструмент для одинакового тестирования локальных моделей Ollama и LM Studio, а также облачных AI-агентов через OpenCode CLI.
 

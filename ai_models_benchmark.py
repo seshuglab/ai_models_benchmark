@@ -21,7 +21,7 @@ from ai_models_benchmark_languages import (
 )
 
 
-VERSION = "0.9n"
+VERSION = "0.9o"
 PROGRAM_TITLE = f"AI MODELS BENCHMARK v{VERSION}"
 EXIT_SUCCESS = 0
 EXIT_UNEXPECTED_ERROR = 1
