@@ -22,6 +22,17 @@ from ai_models_benchmark_languages import (
 
 
 VERSION = "0.9n"
+PROGRAM_TITLE = f"AI MODELS BENCHMARK v{VERSION}"
+EXIT_SUCCESS = 0
+EXIT_UNEXPECTED_ERROR = 1
+EXIT_ARGUMENT_ERROR = 2
+EXIT_SETUP_ERROR = 3
+EXIT_COMPLETED_WITH_ERRORS = 4
+EXIT_INCOMPLETE = 5
+EXIT_INTERRUPTED = 130
+RUN_COMPLETED = "COMPLETED"
+RUN_COMPLETED_WITH_ERRORS = "COMPLETED_WITH_ERRORS"
+RUN_INCOMPLETE = "INCOMPLETE"
 PROGRAM_DIR = Path(
     sys.executable if getattr(sys, "frozen", False) else __file__
 ).resolve().parent
@@ -188,6 +199,10 @@ def format_count(value):
     return lang("unavailable_value") if value is None else str(value)
 
 
+def add_run_error(errors, category, message):
+    errors.append((category, str(message)))
+
+
 def format_token_count_short(value):
     value = 0 if value is None else int(value)
     if value < 1000:
@@ -208,6 +223,51 @@ def calculate_rate(count, seconds):
     if not seconds or count is None:
         return None
     return count / seconds
+
+
+def get_run_status(result):
+    return result.get("run_status") or (
+        RUN_INCOMPLETE if "error" in result else RUN_COMPLETED
+    )
+
+
+def run_status_lines(result):
+    lines = [get_run_status(result)]
+    run_errors = result.get("run_errors") or []
+    if not run_errors and "error" in result:
+        provider = PROVIDERS.get(result.get("source"), {})
+        run_errors = [
+            (
+                "provider",
+                f"{provider.get('title', result.get('source'))}: {result['error']}",
+            )
+        ]
+    for category, message in run_errors:
+        lines.append(
+            f"- {lang(f'run_error_{category}')}: {message}"
+        )
+    return lines
+
+
+def run_status_block(result, markdown=False):
+    prefix = "# " if markdown else ""
+    heading = f"{prefix}{lang('run_status')}:"
+    if markdown:
+        heading = heading.upper()
+    return [heading, *run_status_lines(result)]
+
+
+def run_output_lines(result, markdown=False):
+    prefix = "# " if markdown else ""
+    metrics_heading = f"{prefix}{lang('metrics_heading')}:"
+    if markdown:
+        metrics_heading = metrics_heading.upper()
+    return [
+        *run_status_block(result, markdown),
+        "",
+        metrics_heading,
+        *metric_lines(result),
+    ]
 
 
 def metric_lines(result):
@@ -352,7 +412,7 @@ def show_help(spinner):
 def read_arguments(spinner):
     if "--help" in sys.argv:
         show_help(spinner)
-        raise SystemExit
+        raise SystemExit(EXIT_SUCCESS)
 
     known_options = {
         "--help",
@@ -368,7 +428,7 @@ def read_arguments(spinner):
     if unknown_options:
         spinner.write(lang("unknown_option", option=unknown_options[0]))
         show_help(spinner)
-        raise SystemExit
+        raise SystemExit(EXIT_ARGUMENT_ERROR)
 
     arguments = [argument for argument in sys.argv[1:] if not argument.startswith("--")]
     if not arguments:
@@ -387,7 +447,7 @@ def read_arguments(spinner):
     ):
         spinner.write(lang("args_error"))
         show_help(spinner)
-        raise SystemExit
+        raise SystemExit(EXIT_ARGUMENT_ERROR)
     return arguments[0], int(arguments[1])
 
 
@@ -752,6 +812,13 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     cache_write_tokens = None
     total_tokens = None
     cost_usd = None
+    run_errors = []
+    recovery = None
+
+    def reset_response_recovery():
+        nonlocal recovery
+        recovery = None
+
     process = None
     return_code = None
     run_error = None
@@ -782,6 +849,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             block = None
 
             if event_type == "step_start":
+                reset_response_recovery()
                 step_count += 1
                 step_tokens = "/".join(
                     format_token_count_short(value)
@@ -817,6 +885,13 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                 tool = part.get("tool", lang("tool_unknown"))
                 status = state.get("status", lang("tool_status_unknown"))
                 title = state.get("title") or ""
+                reset_response_recovery()
+                if isinstance(status, str) and status.casefold() == "error":
+                    add_run_error(
+                        run_errors,
+                        "tool",
+                        f"{tool}: {title or status}",
+                    )
                 block = add_opencode_event(
                     event_log,
                     lang(
@@ -831,10 +906,14 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                     first_text_time = time.perf_counter()
                 if text:
                     response_parts.append(text)
+                    if run_errors:
+                        recovery = "text"
                     block = add_opencode_event(
                         event_log, lang("log_answer", elapsed=elapsed), text, spinner
                     )
             elif event_type == "step_finish":
+                if recovery == "text":
+                    recovery = "completed"
                 tokens = opencode_tokens(event)
                 if "input" in tokens:
                     prompt_tokens = (prompt_tokens or 0) + (tokens.get("input") or 0)
@@ -859,9 +938,15 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                 if cost is not None:
                     cost_usd = (cost_usd or 0) + cost
             elif event_type == "error":
+                reset_response_recovery()
                 error = event.get("error")
                 if not isinstance(error, str):
                     error = json.dumps(error, ensure_ascii=False, indent=2)
+                add_run_error(
+                    run_errors,
+                    "opencode",
+                    error,
+                )
                 block = add_opencode_event(
                     event_log,
                     lang("log_error", elapsed=elapsed, title=provider["title"].upper()),
@@ -896,6 +981,26 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     if end_time is None:
         end_time = time.perf_counter()
     total_seconds = end_time - start_time
+    if run_error is not None:
+        add_run_error(run_errors, "run", run_error)
+    elif return_code:
+        add_run_error(
+            run_errors,
+            "process",
+            lang(
+                "provider_exit_code",
+                title=provider["title"],
+                code=return_code,
+            ),
+        )
+    if run_error is not None or return_code != 0:
+        run_status = RUN_INCOMPLETE
+    elif not run_errors:
+        run_status = RUN_COMPLETED
+    elif recovery == "completed":
+        run_status = RUN_COMPLETED_WITH_ERRORS
+    else:
+        run_status = RUN_INCOMPLETE
     result = {
         **model,
         "first_token_seconds": (
@@ -913,6 +1018,8 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "load_seconds": None,
         "response": "\n\n".join(response_parts),
         "agent_steps": step_count,
+        "run_status": run_status,
+        "run_errors": run_errors,
         "event_log": "\n\n".join(event_log),
         "agent_log_legend": agent_log_legend,
         "agent_work_dir": relative_work_dir,
@@ -922,11 +1029,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     if run_error is not None:
         result["error"] = str(run_error)
     elif return_code:
-        result["error"] = lang(
-            "provider_exit_code",
-            title=provider["title"],
-            code=return_code,
-        )
+        result["error"] = run_errors[-1][1]
     return result
 
 
@@ -934,12 +1037,21 @@ def make_error_result(model, error):
     return {**model, "error": str(error)}
 
 
+def write_error(spinner, error):
+    spinner.write(f"\n{lang('error_label')}: {error}")
+
+
+def wait_for_exit(spinner, prompt=None):
+    try:
+        spinner.input(prompt if prompt is not None else lang("exit_prompt"))
+    except EOFError:
+        pass
+
+
 def print_result(result, spinner):
-    spinner.write(lang("test_completed"))
-    for line in metric_lines(result):
+    spinner.write("")
+    for line in run_output_lines(result):
         spinner.write(line)
-    if "error" in result:
-        spinner.write(f"{lang('error_label')}: {result['error']}")
 
 
 def save_report(result, test_file, test_title, prompt):
@@ -955,7 +1067,7 @@ def save_report(result, test_file, test_title, prompt):
     report_path = PROGRAM_DIR / report_name
 
     with report_path.open("w", encoding="utf-8") as report:
-        report.write(f"# AI MODELS BENCHMARK v{VERSION}\n")
+        report.write(f"# {PROGRAM_TITLE}\n")
         report.write(
             f"{lang('report_date')}: "
             f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
@@ -974,12 +1086,7 @@ def save_report(result, test_file, test_title, prompt):
         report.write(f"{lang('report_test')}: {test_title}\n")
         report.write(f"{lang('report_test_file')}: {test_file.name}\n")
 
-        report.write(lang("report_metrics"))
-        report.write("\n".join(metric_lines(result)) + "\n")
-
-        if "error" in result:
-            report.write(lang("report_error"))
-            report.write(f"{result['error']}\n")
+        report.write("\n" + "\n".join(run_output_lines(result, markdown=True)) + "\n")
 
         report.write(lang("report_prompt"))
         report.write(prompt + "\n")
@@ -995,7 +1102,7 @@ def save_report(result, test_file, test_title, prompt):
 
     if SAVE_AGENT_JSON_LOG and result.get("json_event_log"):
         log_head = [
-            f"# AI MODELS BENCHMARK v{VERSION} LOG",
+            f"# {PROGRAM_TITLE} LOG",
             f"{lang('report_date')}: "
             f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
             f"{lang('report_source')}: "
@@ -1013,6 +1120,8 @@ def save_report(result, test_file, test_title, prompt):
         report_path.with_suffix(".log").write_text(
             "\n".join(log_head)
             + "\n\n"
+            + "\n".join(run_status_block(result, markdown=True))
+            + "\n\n"
             + lang("report_log").strip()
             + "\n\n"
             + "\n".join(log_body)
@@ -1024,7 +1133,7 @@ def save_report(result, test_file, test_title, prompt):
 
 
 def run(spinner, argv_model="", argv_test=0):
-    program_title = f"AI MODELS BENCHMARK v{VERSION}"
+    program_title = PROGRAM_TITLE
     if SAVE_AGENT_JSON_LOG:
         program_title += " [LOG]"
     searching_models = lang("searching_models")
@@ -1086,12 +1195,19 @@ def run(spinner, argv_model="", argv_test=0):
     provider_results, sections, models, provider_width = find_models()
     if not models:
         spinner.write(lang("no_models"))
-        return
+        set_window_title(lang("window_error", program=program_title))
+        return EXIT_SETUP_ERROR
 
-    tests = get_tests()
+    try:
+        tests = get_tests()
+    except Exception as error:
+        write_error(spinner, error)
+        set_window_title(lang("window_error", program=program_title))
+        return EXIT_SETUP_ERROR
     if not tests:
         spinner.write(lang("no_tests"))
-        return
+        set_window_title(lang("window_error", program=program_title))
+        return EXIT_SETUP_ERROR
 
     while True:
         name_counts = {}
@@ -1125,7 +1241,8 @@ def run(spinner, argv_model="", argv_test=0):
                 provider_results, sections, models, provider_width = find_models()
                 if not models:
                     spinner.write(lang("no_models"))
-                    return
+                    set_window_title(lang("window_error", program=program_title))
+                    return EXIT_SETUP_ERROR
                 break
 
             model_number = int(choice) if choice.isdigit() else None
@@ -1145,7 +1262,8 @@ def run(spinner, argv_model="", argv_test=0):
             if not matches:
                 spinner.write(lang("model_not_found", model=choice))
                 if argv_model:
-                    return
+                    set_window_title(lang("window_error", program=program_title))
+                    return EXIT_ARGUMENT_ERROR
                 continue
             if len(matches) > 1:
                 duplicates = "\n".join(
@@ -1160,7 +1278,8 @@ def run(spinner, argv_model="", argv_test=0):
                     )
                 )
                 if argv_model:
-                    return
+                    set_window_title(lang("window_error", program=program_title))
+                    return EXIT_ARGUMENT_ERROR
                 continue
             model = models[matches[0]]
 
@@ -1189,7 +1308,8 @@ def run(spinner, argv_model="", argv_test=0):
         if argv_test:
             if argv_test > len(tests):
                 spinner.write(lang("test_not_found", test=argv_test))
-                return
+                set_window_title(lang("window_error", program=program_title))
+                return EXIT_ARGUMENT_ERROR
             selected_tests = [tests[argv_test - 1]]
             break
 
@@ -1212,10 +1332,16 @@ def run(spinner, argv_model="", argv_test=0):
 
     prepare = protocol["prepare"]
     if prepare:
-        prepare(provider, model, spinner)
+        try:
+            prepare(provider, model, spinner)
+        except Exception as error:
+            set_window_title(lang("window_error", program=program_title))
+            write_error(spinner, error)
+            return EXIT_SETUP_ERROR
 
     completed_tests = 0
     failed = False
+    run_exit_code = EXIT_SUCCESS
     selected_count = len(selected_tests)
     try:
         for position, (test_file, test_title, prompt) in enumerate(selected_tests, 1):
@@ -1244,7 +1370,15 @@ def run(spinner, argv_model="", argv_test=0):
                 spinner.write(lang("test_header", title=test_title))
 
             result = protocol["run"](provider, model, prompt, test_file, spinner)
-            failed = failed or "error" in result
+            run_status = get_run_status(result)
+            if run_status == RUN_INCOMPLETE:
+                run_exit_code = EXIT_INCOMPLETE
+            elif (
+                run_status == RUN_COMPLETED_WITH_ERRORS
+                and run_exit_code == EXIT_SUCCESS
+            ):
+                run_exit_code = EXIT_COMPLETED_WITH_ERRORS
+            failed = failed or run_status == RUN_INCOMPLETE
 
             print_result(result, spinner)
             report_name = save_report(result, test_file, test_title, prompt)
@@ -1256,39 +1390,43 @@ def run(spinner, argv_model="", argv_test=0):
     except KeyboardInterrupt:
         spinner.write(lang("interrupted"))
         set_window_title(program_title)
+        run_exit_code = EXIT_INTERRUPTED
     else:
         state = "window_error" if failed else "window_completed"
         set_window_title(lang(state, program=program_title))
     spinner.write(lang("final_model", name=model["full_name"]))
     spinner.write(lang("tests_completed", count=completed_tests))
+    return run_exit_code
 
 
 def main():
+    program_title = PROGRAM_TITLE
+    if SAVE_AGENT_JSON_LOG:
+        program_title += " [LOG]"
     with Spinner(SHOW_SPINNER) as spinner:
         try:
             ensure_language()
         except LanguageError as error:
-            spinner.input(str(error))
-            raise SystemExit
+            wait_for_exit(spinner, str(error))
+            return EXIT_ARGUMENT_ERROR
 
+        exit_code = EXIT_SUCCESS
         try:
             argv_model, argv_test = read_arguments(spinner)
-            run(spinner, argv_model, argv_test)
-        except SystemExit:
-            raise
+            exit_code = run(spinner, argv_model, argv_test)
+        except SystemExit as error:
+            exit_code = error.code if isinstance(error.code, int) else EXIT_SUCCESS
         except KeyboardInterrupt:
             spinner.write(lang("interrupted"))
+            exit_code = EXIT_INTERRUPTED
         except Exception as error:
-            set_window_title(
-                lang(
-                    "window_error",
-                    program=f"AI MODELS BENCHMARK v{VERSION}",
-                )
-            )
-            spinner.write(f"\n{lang('error_label')}: {error}")
+            set_window_title(lang("window_error", program=program_title))
+            write_error(spinner, error)
+            exit_code = EXIT_UNEXPECTED_ERROR
         finally:
-            spinner.input(lang("exit_prompt"))
+            wait_for_exit(spinner)
+    return exit_code
 
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())

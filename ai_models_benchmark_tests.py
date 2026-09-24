@@ -127,6 +127,7 @@ class RunTests(unittest.TestCase):
         save_json_log=False,
         program_dir=None,
         provider_id="ollama",
+        prepare_side_effect=None,
     ):
         languages.set_language("ru")
         spinner = Mock()
@@ -179,9 +180,56 @@ class RunTests(unittest.TestCase):
         ):
             if run_side_effect is not None:
                 run_test.side_effect = run_side_effect
-            benchmark.run(spinner, argv_model, argv_test)
+            if prepare_side_effect is not None:
+                prepare_model.side_effect = prepare_side_effect
+            self.last_exit_code = benchmark.run(spinner, argv_model, argv_test)
 
         return spinner, model, tests, prepare_model, run_test, save_report
+
+    def test_no_available_models_returns_provider_error_code(self):
+        languages.set_language("ru")
+        spinner = Mock()
+        providers = {"ollama": benchmark.PROVIDERS["ollama"]}
+        protocol = {
+            "get_models": Mock(return_value=(False, [])),
+            "prepare": None,
+            "run": Mock(),
+            "metrics": "generation",
+        }
+
+        with (
+            patch.dict(benchmark.PROVIDERS, providers, clear=True),
+            patch.dict(benchmark.PROTOCOLS, {"ollama_api": protocol}, clear=True),
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+        ):
+            exit_code = benchmark.run(spinner)
+
+        self.assertEqual(exit_code, benchmark.EXIT_SETUP_ERROR)
+
+    def test_unknown_command_line_model_returns_argument_error_code(self):
+        self.run_with_test_choice("1", argv_model="missing-model")
+
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_ARGUMENT_ERROR)
+
+    def test_provider_execution_error_returns_incomplete_code(self):
+        self.run_with_test_choice(
+            "1", run_side_effect=[{"error": "provider request failed"}]
+        )
+
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_INCOMPLETE)
+
+    def test_model_preparation_error_returns_provider_error_code(self):
+        spinner, _, _, prepare_model, run_test, save_report = (
+            self.run_with_test_choice(
+                "1", prepare_side_effect=RuntimeError("model load failed")
+            )
+        )
+
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_SETUP_ERROR)
+        prepare_model.assert_called_once()
+        run_test.assert_not_called()
+        save_report.assert_not_called()
+        spinner.write.assert_any_call("\nОШИБКА: model load failed")
 
     def test_x_runs_every_test_with_separate_report(self):
         spinner, model, tests, prepare_model, run_test, save_report = (
@@ -196,6 +244,17 @@ class RunTests(unittest.TestCase):
         spinner.write.assert_any_call("\nТест [1/2]: Первый тест\n")
         spinner.write.assert_any_call("\nТест [2/2]: Второй тест\n")
         spinner.write.assert_any_call("Пройдено тестов: 2")
+
+    def test_incomplete_test_takes_precedence_over_completed_with_errors(self):
+        self.run_with_test_choice(
+            "X",
+            run_side_effect=[
+                {"run_status": "COMPLETED_WITH_ERRORS"},
+                {"run_status": "INCOMPLETE"},
+            ],
+        )
+
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_INCOMPLETE)
 
     def test_model_grid_has_spacing_after_provider_list(self):
         spinner, *_ = self.run_with_test_choice("1")
@@ -578,8 +637,11 @@ class ReadArgumentsTests(unittest.TestCase):
                 with patch.object(
                     benchmark.sys, "argv", ["benchmark.py", "--ru", *arguments]
                 ):
-                    with self.assertRaises(SystemExit):
+                    with self.assertRaises(SystemExit) as context:
                         benchmark.read_arguments(spinner)
+                    self.assertEqual(
+                        context.exception.code, benchmark.EXIT_ARGUMENT_ERROR
+                    )
                 spinner.write.assert_any_call("Укажите модель, номер теста или X.\n")
 
     def test_shows_help(self):
@@ -587,8 +649,9 @@ class ReadArgumentsTests(unittest.TestCase):
         with patch.object(
             benchmark.sys, "argv", ["benchmark.py", "--ru", "--help"]
         ):
-            with self.assertRaises(SystemExit):
+            with self.assertRaises(SystemExit) as context:
                 benchmark.read_arguments(spinner)
+        self.assertEqual(context.exception.code, benchmark.EXIT_SUCCESS)
         self.assertIn("Использование:", spinner.write.call_args.args[0])
 
     def test_main_waits_for_enter_after_invalid_arguments(self):
@@ -604,12 +667,62 @@ class ReadArgumentsTests(unittest.TestCase):
             patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru", "model"]),
             patch.object(benchmark, "Spinner", return_value=spinner_context),
         ):
-            with self.assertRaises(SystemExit):
-                benchmark.main()
+            self.assertEqual(benchmark.main(), benchmark.EXIT_ARGUMENT_ERROR)
 
         spinner.input.assert_called_once_with(
             languages.lang("exit_prompt")
         )
+
+    def test_main_help_returns_success_code(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru", "--help"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.object(benchmark, "run") as run,
+        ):
+            exit_code = benchmark.main()
+
+        self.assertEqual(exit_code, benchmark.EXIT_SUCCESS)
+        run.assert_not_called()
+        spinner.input.assert_called_once_with(languages.lang("exit_prompt"))
+
+    def test_main_returns_run_exit_code(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.object(
+                benchmark, "run", return_value=benchmark.EXIT_COMPLETED_WITH_ERRORS
+            ),
+        ):
+            exit_code = benchmark.main()
+
+        self.assertEqual(exit_code, benchmark.EXIT_COMPLETED_WITH_ERRORS)
+        spinner.input.assert_called_once_with(languages.lang("exit_prompt"))
+
+    def test_eof_at_exit_prompt_does_not_replace_run_exit_code(self):
+        spinner = Mock()
+        spinner.input.side_effect = EOFError
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.object(benchmark, "run", return_value=benchmark.EXIT_INCOMPLETE),
+        ):
+            exit_code = benchmark.main()
+
+        self.assertEqual(exit_code, benchmark.EXIT_INCOMPLETE)
 
     def test_unknown_option_stops_before_run(self):
         spinner = Mock()
@@ -622,8 +735,7 @@ class ReadArgumentsTests(unittest.TestCase):
             patch.object(benchmark, "Spinner", return_value=spinner_context),
             patch.object(benchmark, "run") as run,
         ):
-            with self.assertRaises(SystemExit):
-                benchmark.main()
+            self.assertEqual(benchmark.main(), benchmark.EXIT_ARGUMENT_ERROR)
 
         run.assert_not_called()
         spinner.write.assert_any_call("Неизвестный параметр: --spiner\n")
@@ -646,10 +758,27 @@ class ReadArgumentsTests(unittest.TestCase):
             patch.object(benchmark, "Spinner", return_value=spinner_context),
             patch.object(benchmark, "run", side_effect=KeyboardInterrupt),
         ):
-            benchmark.main()
+            self.assertEqual(benchmark.main(), benchmark.EXIT_INTERRUPTED)
 
         spinner.write.assert_called_once_with("\nExecution stopped by user.")
         spinner.input.assert_called_once_with("\nPress Enter to exit...")
+
+    def test_main_returns_unexpected_error_code(self):
+        spinner = Mock()
+        spinner_context = Mock()
+        spinner_context.__enter__ = Mock(return_value=spinner)
+        spinner_context.__exit__ = Mock(return_value=False)
+
+        with (
+            patch.object(benchmark.sys, "argv", ["benchmark.py", "--ru"]),
+            patch.object(benchmark, "Spinner", return_value=spinner_context),
+            patch.object(benchmark, "run", side_effect=RuntimeError("unexpected")),
+        ):
+            exit_code = benchmark.main()
+
+        self.assertEqual(exit_code, benchmark.EXIT_UNEXPECTED_ERROR)
+        spinner.write.assert_any_call("\nОШИБКА: unexpected")
+        spinner.input.assert_called_once_with("\nНажми Enter для выхода...")
 
 
 class ProviderFlowIntegrationTests(unittest.TestCase):
@@ -726,7 +855,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                     benchmark.sys, "argv", ["benchmark.py", f"--{lang_code}"]
                 ),
             ):
-                benchmark.run(spinner)
+                self.last_exit_code = benchmark.run(spinner)
 
             reports = list(program_dir.glob("ai_test_*.txt"))
             self.assertEqual(len(reports), 1)
@@ -754,6 +883,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
             [100.0, 101.0, 104.0],
         )
 
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_SUCCESS)
         self.assertIn("Источник: Local Test (локально)", report)
         self.assertIn("Модель: test-ollama", report)
         self.assertIn("До первого токена: 1.00 сек", report)
@@ -798,6 +928,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
             [100.0, 100.0, 101.0, 102.0, 103.0, 104.0, 104.5, 105.0],
         )
 
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_SUCCESS)
         self.assertIn("Источник: Agent Test (облако)", report)
         self.assertIn("Модель: test/test-agent", report)
         self.assertIn("До первого текста: 4.00 сек", report)
@@ -811,6 +942,8 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("Всего токенов: 19", report)
         self.assertIn("Расчётная стоимость: недоступно", report)
         self.assertIn("Шагов агента: 1", report)
+        self.assertIn("# СТАТУС ЗАПУСКА:\nCOMPLETED", report)
+        self.assertLess(report.index("# СТАТУС ЗАПУСКА:"), report.index("# МЕТРИКИ:"))
         self.assertIn("[0](0/0/0/0)[АГЕНТ] Шаг 1", report)
         self.assertIn("Формат шага: [время](I/O/R/C)[АГЕНТ] Шаг N", report)
         self.assertIn("[1][РАЗМЫШЛЕНИЕ]\nПроверяю условие", report)
@@ -818,6 +951,31 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         cleaned_response = "Однозначный тестовый ответ\n\nВторая строка"
         self.assertIn(f"[3][ОТВЕТ]\n{cleaned_response}", report)
         self.assertIn(f"# ОТВЕТ МОДЕЛИ:\n{cleaned_response}\n", report)
+
+    def test_recovered_tool_error_returns_completed_with_errors_code(self):
+        process = FakeProcess(
+            [
+                {
+                    "type": "tool_use",
+                    "part": {"tool": "bash", "state": {"status": "error"}},
+                },
+                {"type": "step_finish", "tokens": {"output": 1}},
+                {"type": "step_start"},
+                {"type": "text", "text": "Recovered final answer"},
+                {"type": "step_finish", "tokens": {"output": 3}},
+            ]
+        )
+
+        report = self.run_isolated(
+            "2",
+            patch.object(benchmark.subprocess, "Popen", return_value=process),
+            [100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0],
+        )
+
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_COMPLETED_WITH_ERRORS)
+        self.assertIn("COMPLETED_WITH_ERRORS", report)
+        self.assertIn("bash: error", report)
+        self.assertIn("Recovered final answer", report)
 
     def test_opencode_nonzero_exit_keeps_partial_result(self):
         process = FakeProcess(
@@ -845,11 +1003,17 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
             [100.0, 100.0, 101.0, 102.0, 103.0, 104.0],
         )
 
+        self.assertEqual(self.last_exit_code, benchmark.EXIT_INCOMPLETE)
         self.assertIn("Входных токенов без кэша: 10", report)
         self.assertIn("Сгенерировано токенов: 4", report)
         self.assertIn("Расчётная стоимость: $0.003", report)
         self.assertIn("Шагов агента: 1", report)
-        self.assertIn("# ОШИБКА:\nAgent Test завершился с кодом 7", report)
+        self.assertIn("INCOMPLETE", report)
+        self.assertIn(
+            languages.lang("provider_exit_code", title="Agent Test", code=7),
+            report,
+        )
+        self.assertNotIn("# ОШИБКА:", report)
         self.assertIn("[1][ОТВЕТ]\nЧастичный ответ", report)
 
     def test_opencode_distinguishes_zero_and_missing_token_metrics(self):
@@ -1006,6 +1170,12 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertTrue(lines[0].endswith(" LOG"), lines[0])
         self.assertIn("Модель: test/test-agent", content)
         self.assertIn("Файл теста: 01_test.md", content)
+        self.assertIn("# СТАТУС ЗАПУСКА:\nCOMPLETED", content)
+        self.assertLess(
+            content.index("# СТАТУС ЗАПУСКА:"),
+            content.index("# ЖУРНАЛ ВЫПОЛНЕНИЯ:"),
+        )
+        self.assertNotIn("# МЕТРИКИ:", content)
         self.assertIn("# ЖУРНАЛ ВЫПОЛНЕНИЯ:", content)
         journal_index = lines.index("# ЖУРНАЛ ВЫПОЛНЕНИЯ:")
         self.assertEqual(lines[journal_index + 1], "")
@@ -1295,6 +1465,43 @@ class PrintResultTests(unittest.TestCase):
         spinner.write.assert_any_call("Скорость генерации: 5.00 токен/сек")
         spinner.write.assert_any_call("Токенов в промпте: 20")
 
+    def test_provider_error_is_not_shown_as_completed(self):
+        spinner = Mock()
+        result = {"source": "ollama", "error": "provider unavailable"}
+
+        benchmark.print_result(result, spinner)
+
+        self.assertEqual(spinner.write.call_args_list[0].args[0], "")
+        self.assertEqual(
+            spinner.write.call_args_list[1].args[0],
+            "Статус запуска:",
+        )
+        self.assertEqual(spinner.write.call_args_list[2].args[0], "INCOMPLETE")
+        spinner.write.assert_any_call(
+            "- Провайдер: Ollama: provider unavailable"
+        )
+
+    def test_run_status_and_error_share_one_summary_format(self):
+        spinner = Mock()
+        result = {
+            "source": "opencode",
+            "run_status": "COMPLETED_WITH_ERRORS",
+            "run_errors": [("tool", "bash: error")],
+        }
+
+        benchmark.print_result(result, spinner)
+
+        written = [call.args[0] for call in spinner.write.call_args_list]
+        self.assertEqual(
+            written[:4],
+            [
+                "",
+                "Статус запуска:",
+                "COMPLETED_WITH_ERRORS",
+                "- Инструмент: bash: error",
+            ],
+        )
+
 
 class FormatListNumberTests(unittest.TestCase):
     def test_keeps_plain_numbers_for_short_list(self):
@@ -1554,6 +1761,195 @@ class AddOpencodeEventTests(unittest.TestCase):
 
 
 class OpencodeRunTests(unittest.TestCase):
+    def run_events(self, events, return_code=0, save_json=False):
+        languages.set_language("ru")
+        model = {
+            "source": "opencode",
+            "name": "test-model",
+            "full_name": "provider/test-model",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            test_file = program_dir / "01_test.md"
+            test_file.write_text("# Test\nprompt", encoding="utf-8")
+            process = FakeProcess(events, return_code=return_code)
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.object(benchmark.subprocess, "Popen", return_value=process),
+                patch.object(benchmark, "SAVE_AGENT_JSON_LOG", save_json),
+            ):
+                return benchmark.run_opencode_cli_test(
+                    benchmark.PROVIDERS["opencode"],
+                    model,
+                    "prompt",
+                    test_file,
+                    Mock(),
+                )
+
+    def test_successful_run_is_completed_without_errors(self):
+        result = self.run_events(
+            [
+                {"type": "step_start"},
+                {"type": "text", "text": "Final answer"},
+                {"type": "step_finish", "tokens": {"output": 2}},
+            ]
+        )
+
+        self.assertEqual(result["run_status"], "COMPLETED")
+        self.assertEqual(result["run_errors"], [])
+        self.assertEqual(result["response"], "Final answer")
+        self.assertIn(
+            "COMPLETED",
+            "\n".join(benchmark.run_status_lines(result)),
+        )
+
+    def test_tool_error_followed_by_completed_response_is_recoverable(self):
+        events = [
+            {
+                "type": "tool_use",
+                "part": {"tool": "bash", "state": {"status": "error"}},
+            },
+            {"type": "step_finish", "tokens": {"output": 1}},
+            {"type": "step_start"},
+            {"type": "text", "text": "Recovered final answer"},
+            {"type": "step_finish", "tokens": {"output": 3}},
+        ]
+        result = self.run_events(events, save_json=True)
+
+        self.assertEqual(result["run_status"], "COMPLETED_WITH_ERRORS")
+        self.assertEqual(len(result["run_errors"]), 1)
+        self.assertEqual(result["run_errors"][0][0], "tool")
+        self.assertEqual(result["response"], "Recovered final answer")
+        status_lines = "\n".join(benchmark.run_status_lines(result))
+        self.assertIn("COMPLETED_WITH_ERRORS", status_lines)
+        self.assertIn(languages.lang("run_error_tool"), status_lines)
+        self.assertIn("bash: error", status_lines)
+        self.assertEqual(
+            result["json_event_log"],
+            "\n".join(json.dumps(event, ensure_ascii=False) for event in events),
+        )
+
+    def test_muse_report_pattern_with_final_tool_error_is_incomplete(self):
+        result = self.run_events(
+            [
+                {"type": "step_start"},
+                {"type": "text", "text": "Checking confirmed defects"},
+                {
+                    "type": "step_finish",
+                    "tokens": {"input": 12, "output": 5, "total": 17},
+                    "part": {"cost": 0.004},
+                },
+                {"type": "step_start"},
+                {
+                    "type": "text",
+                    "text": "Ключевые дефекты подтверждены — проверяю последние детали и готовлю итоговый документ.",
+                },
+                {
+                    "type": "tool_use",
+                    "part": {
+                        "tool": "bash",
+                        "state": {"status": "error"},
+                    },
+                },
+            ]
+        )
+
+        self.assertEqual(result["run_status"], "INCOMPLETE")
+        self.assertEqual(
+            sum(category == "tool" for category, _ in result["run_errors"]), 1
+        )
+        self.assertEqual(result["prompt_tokens"], 12)
+        self.assertEqual(result["tokens_generated"], 5)
+        self.assertAlmostEqual(result["cost_usd"], 0.004)
+        self.assertIn("Ключевые дефекты подтверждены", result["response"])
+        self.assertIn(
+            "INCOMPLETE",
+            "\n".join(benchmark.run_status_lines(result)),
+        )
+
+    def test_interim_text_after_error_is_not_a_completed_response(self):
+        result = self.run_events(
+            [
+                {
+                    "type": "tool_use",
+                    "part": {"tool": "bash", "state": {"status": "error"}},
+                },
+                {"type": "step_start"},
+                {"type": "text", "text": "Attempting recovery"},
+                {"type": "step_finish", "tokens": {"output": 1}},
+                {"type": "step_start"},
+                {"type": "step_finish", "tokens": {"output": 1}},
+            ]
+        )
+
+        self.assertEqual(result["run_status"], "INCOMPLETE")
+        self.assertEqual(len(result["run_errors"]), 1)
+
+    def test_provider_error_without_recovery_is_incomplete(self):
+        result = self.run_events(
+            [
+                {"type": "step_start"},
+                {"type": "error", "error": "provider unavailable"},
+            ]
+        )
+
+        self.assertEqual(result["run_status"], "INCOMPLETE")
+        self.assertEqual(result["run_errors"][0][0], "opencode")
+        self.assertIn("provider unavailable", result["event_log"])
+        status_lines = "\n".join(benchmark.run_status_lines(result))
+        self.assertIn(languages.lang("run_error_opencode"), status_lines)
+        self.assertIn("provider unavailable", status_lines)
+
+    def test_report_places_run_status_before_unchanged_metrics(self):
+        languages.set_language("ru")
+        result = {
+            "source": "opencode",
+            "name": "test-model",
+            "full_name": "provider/test-model",
+            "run_status": "INCOMPLETE",
+            "run_errors": [("tool", "bash: error")],
+            "response": "partial answer",
+            "event_log": "[ИНСТРУМЕНТ] bash - error",
+            "first_token_seconds": 1.0,
+            "total_seconds": 2.0,
+            "tokens_per_second": 3.0,
+            "prompt_tokens": 4,
+            "tokens_generated": 5,
+            "reasoning_tokens": 1,
+            "cache_read_tokens": 2,
+            "cache_write_tokens": 0,
+            "total_tokens": 12,
+            "cost_usd": 0.01,
+            "agent_steps": 2,
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            test_file = program_dir / "06_test.md"
+            test_file.write_text("# Test\nprompt", encoding="utf-8")
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.object(benchmark, "SAVE_AGENT_JSON_LOG", False),
+            ):
+                report_name = benchmark.save_report(
+                    result, test_file, "Test", "prompt"
+                )
+            report = (program_dir / report_name).read_text(encoding="utf-8")
+
+        self.assertIn(
+            "Файл теста: 06_test.md\n\n# СТАТУС ЗАПУСКА:",
+            report,
+        )
+        self.assertIn(
+            "# СТАТУС ЗАПУСКА:\nINCOMPLETE\n- Инструмент: bash: error\n\n# МЕТРИКИ:",
+            report,
+        )
+        metrics = report.split("# МЕТРИКИ:\n", 1)[1]
+        self.assertIn("До первого текста: 1.00 сек", metrics)
+        self.assertNotIn("INCOMPLETE", metrics)
+        self.assertNotIn("Инструмент: bash", metrics)
+
     def test_interrupt_kills_process_and_reraises(self):
         languages.set_language("ru")
         process = Mock()
@@ -1768,8 +2164,7 @@ class LanguageTableTests(unittest.TestCase):
                 clear=True,
             ),
         ):
-            with self.assertRaises(SystemExit):
-                benchmark.main()
+            self.assertEqual(benchmark.main(), benchmark.EXIT_ARGUMENT_ERROR)
         get_models.assert_not_called()
         self.assertIn("searching_models", spinner.input.call_args.args[0])
         languages.set_language("ru")
@@ -1813,8 +2208,7 @@ class LanguageTableTests(unittest.TestCase):
                 clear=True,
             ),
         ):
-            with self.assertRaises(SystemExit):
-                benchmark.main()
+            self.assertEqual(benchmark.main(), benchmark.EXIT_ARGUMENT_ERROR)
         get_models.assert_not_called()
         prompt = spinner.input.call_args.args[0]
         self.assertIn("exit_prompt", prompt)
@@ -1982,8 +2376,7 @@ class LanguageSelectionTests(unittest.TestCase):
             ),
             patch.dict(benchmark.PROTOCOLS, {"ollama_api": protocol}, clear=True),
         ):
-            with self.assertRaises(SystemExit):
-                benchmark.main()
+            self.assertEqual(benchmark.main(), benchmark.EXIT_ARGUMENT_ERROR)
         get_models.assert_not_called()
         prompt = spinner.input.call_args.args[0]
         self.assertIn("--ru", prompt)
@@ -2095,7 +2488,7 @@ class LocalizedScenarioTests(unittest.TestCase):
         spinner, content, _ = self.run_scenario("ru")
         self.assertIn("Выбранная модель", self._written(spinner))
         self.assertIn("Источник", content)
-        self.assertIn("МЕТРИКИ", content)
+        self.assertIn("# МЕТРИКИ", content)
         self.assertIn("ОТВЕТ МОДЕЛИ", content)
         languages.set_language("ru")
 
@@ -2104,9 +2497,15 @@ class LocalizedScenarioTests(unittest.TestCase):
         written = self._written(spinner)
         self.assertIn("Selected model", written)
         self.assertIn("Source", content)
-        self.assertIn("METRICS", content)
+        self.assertIn("# METRICS", content)
         self.assertIn("MODEL ANSWER", content)
-        for russian in ("Выбранная модель", "Источник:", "МЕТРИКИ", "ОТВЕТ МОДЕЛИ"):
+        for russian in (
+            "Выбранная модель",
+            "Источник:",
+            "Метрики",
+            "Статус запуска",
+            "ОТВЕТ МОДЕЛИ",
+        ):
             self.assertNotIn(russian, written + content)
         languages.set_language("ru")
 
