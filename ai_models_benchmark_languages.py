@@ -54,7 +54,14 @@ LANGUAGES = {
         "stopping_other_model": "Останавливаю другую модель: {model}",
         "loading_model": "Загружаю модель: {name}",
         "agent_work_dir": "Рабочая папка агента: {path}",
-        "log_agent_step": "[{elapsed}][АГЕНТ] Шаг {step}",
+        "agent_log_legend": (
+            "Формат шага: [время](I/O/R/C)[АГЕНТ] Шаг N\n"
+            "I - входные токены без кэша, O - выходные токены, "
+            "R - токены размышления, C - токены чтения кэша\n"
+            "Значения токенов накопительные к началу шага. "
+            "K - тысячи, M - миллионы."
+        ),
+        "log_agent_step": "[{elapsed}]({tokens})[АГЕНТ] Шаг {step}",
         "log_thinking": "[{elapsed}][РАЗМЫШЛЕНИЕ]",
         "log_tool": "[{elapsed}][ИНСТРУМЕНТ] {tool} - {status}",
         "tool_unknown": "неизвестный инструмент",
@@ -140,7 +147,14 @@ LANGUAGES = {
         "stopping_other_model": "Stopping another model: {model}",
         "loading_model": "Loading model: {name}",
         "agent_work_dir": "Agent work dir: {path}",
-        "log_agent_step": "[{elapsed}][AGENT] Step {step}",
+        "agent_log_legend": (
+            "Step format: [time](I/O/R/C)[AGENT] Step N\n"
+            "I - input without cache, O - output, R - reasoning, "
+            "C - cache read tokens\n"
+            "Token values are cumulative at the start of the step. "
+            "K - thousands, M - millions."
+        ),
+        "log_agent_step": "[{elapsed}]({tokens})[AGENT] Step {step}",
         "log_thinking": "[{elapsed}][THINKING]",
         "log_tool": "[{elapsed}][TOOL] {tool} - {status}",
         "tool_unknown": "unknown tool",

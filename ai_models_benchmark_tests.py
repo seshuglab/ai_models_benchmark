@@ -809,7 +809,8 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("Токенов из кэша: 3", report)
         self.assertIn("Всего токенов: 19", report)
         self.assertIn("Шагов агента: 1", report)
-        self.assertIn("[0][АГЕНТ] Шаг 1", report)
+        self.assertIn("[0](0/0/0/0)[АГЕНТ] Шаг 1", report)
+        self.assertIn("Формат шага: [время](I/O/R/C)[АГЕНТ] Шаг N", report)
         self.assertIn("[1][РАЗМЫШЛЕНИЕ]\nПроверяю условие", report)
         self.assertIn("[2][ИНСТРУМЕНТ] read - completed\nПрочитан файл", report)
         cleaned_response = "Однозначный тестовый ответ\n\nВторая строка"
@@ -993,14 +994,16 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("Файл теста: 01_test.md", content)
         self.assertIn("# ЖУРНАЛ ВЫПОЛНЕНИЯ:", content)
         journal_index = lines.index("# ЖУРНАЛ ВЫПОЛНЕНИЯ:")
-        self.assertNotEqual(lines[journal_index + 1], "")
-        step_index = lines.index("[0][АГЕНТ] Шаг 1")
+        self.assertEqual(lines[journal_index + 1], "")
+        self.assertTrue(lines[journal_index + 2].startswith("Формат шага:"))
+        step_index = lines.index("[0](0/0/0/0)[АГЕНТ] Шаг 1")
         self.assertEqual(lines[step_index + 1], '{"type": "step_start"}')
         answer_index = lines.index("[1][ОТВЕТ]")
         self.assertEqual(lines[answer_index + 1], "Ответ")
         self.assertEqual(
             lines[answer_index + 2], '{"type": "text", "text": "Ответ"}'
         )
+        self.assertEqual(content.count("Формат шага:"), 1)
         self.assertIn('{"type": "step_finish"', content)
         languages.set_language("ru")
 
@@ -1186,6 +1189,27 @@ class FormatCountTests(unittest.TestCase):
         for value, expected in cases:
             with self.subTest(value=value):
                 self.assertEqual(benchmark.format_count(value), expected)
+
+
+class FormatTokenCountShortTests(unittest.TestCase):
+    def test_formats_compact_token_counts(self):
+        cases = [
+            (None, "0"),
+            (0, "0"),
+            (53, "53"),
+            (999, "999"),
+            (1000, "1K"),
+            (1200, "1.2K"),
+            (18000, "18K"),
+            (90500, "90.5K"),
+            (100000, "100K"),
+            (1250000, "1.25M"),
+        ]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertEqual(
+                    benchmark.format_token_count_short(value), expected
+                )
 
 
 class CalculateRateTests(unittest.TestCase):
@@ -1569,6 +1593,69 @@ class OpencodeRunTests(unittest.TestCase):
         process.kill.assert_called_once_with()
         process.wait.assert_called_once_with(timeout=10)
 
+    def test_opencode_step_telemetry_is_cumulative(self):
+        languages.set_language("ru")
+        process = FakeProcess(
+            [
+                {"type": "step_start"},
+                {
+                    "type": "step_finish",
+                    "tokens": {
+                        "input": 1000,
+                        "output": 1200,
+                        "reasoning": 400,
+                        "total": 2600,
+                        "cache": {"read": 18000},
+                    },
+                },
+                {"type": "step_start"},
+                {
+                    "type": "step_finish",
+                    "tokens": {
+                        "input": 53,
+                        "output": 800,
+                        "reasoning": 600,
+                        "total": 1453,
+                        "cache": {"read": 72500},
+                    },
+                },
+            ]
+        )
+        model = {
+            "source": "opencode",
+            "name": "test-model",
+            "full_name": "provider/test-model",
+        }
+
+        with tempfile.TemporaryDirectory() as directory:
+            program_dir = Path(directory)
+            test_file = program_dir / "01_test.md"
+            test_file.write_text("# Test\nprompt", encoding="utf-8")
+            with (
+                patch.object(benchmark, "PROGRAM_DIR", program_dir),
+                patch.object(benchmark.subprocess, "Popen", return_value=process),
+                patch.object(
+                    benchmark.time,
+                    "perf_counter",
+                    side_effect=[100.0, 100.0, 100.0, 101.0, 101.0, 102.0],
+                ),
+            ):
+                result = benchmark.run_opencode_cli_test(
+                    benchmark.PROVIDERS["opencode"],
+                    model,
+                    "prompt",
+                    test_file,
+                    Mock(),
+                )
+
+        self.assertIn("[0](0/0/0/0)[АГЕНТ] Шаг 1", result["event_log"])
+        self.assertIn("[1](1K/1.2K/400/18K)[АГЕНТ] Шаг 2", result["event_log"])
+        self.assertEqual(result["prompt_tokens"], 1053)
+        self.assertEqual(result["tokens_generated"], 2000)
+        self.assertEqual(result["reasoning_tokens"], 1000)
+        self.assertEqual(result["cache_read_tokens"], 90500)
+        self.assertEqual(result["total_tokens"], 4053)
+
 
 class LanguageTableTests(unittest.TestCase):
     def test_key_sets_match(self):
@@ -1665,6 +1752,26 @@ class LanguageTableTests(unittest.TestCase):
 
 
 class LangFunctionTests(unittest.TestCase):
+    def test_agent_step_telemetry_is_localized(self):
+        languages.set_language("ru")
+        self.assertEqual(
+            languages.lang(
+                "log_agent_step", elapsed=112, tokens="1/3/2/90K", step=7
+            ),
+            "[112](1/3/2/90K)[АГЕНТ] Шаг 7",
+        )
+        self.assertIn("I/O/R/C", languages.lang("agent_log_legend"))
+
+        languages.set_language("en")
+        self.assertEqual(
+            languages.lang(
+                "log_agent_step", elapsed=112, tokens="1/3/2/90K", step=7
+            ),
+            "[112](1/3/2/90K)[AGENT] Step 7",
+        )
+        self.assertIn("I/O/R/C", languages.lang("agent_log_legend"))
+        languages.set_language("ru")
+
     def test_provider_header_does_not_require_plural_forms(self):
         languages.set_language("ru")
         self.assertEqual(

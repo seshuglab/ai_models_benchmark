@@ -181,6 +181,22 @@ def format_count(value):
     return lang("unavailable_value") if value is None else str(value)
 
 
+def format_token_count_short(value):
+    value = 0 if value is None else int(value)
+    if value < 1000:
+        return str(value)
+
+    if value >= 1_000_000:
+        number, suffix = value / 1_000_000, "M"
+    else:
+        number, suffix = value / 1000, "K"
+    decimals = 0 if number >= 100 else 1 if number >= 10 else 2
+    formatted = f"{number:.{decimals}f}"
+    if "." in formatted:
+        formatted = formatted.rstrip("0").rstrip(".")
+    return formatted + suffix
+
+
 def calculate_rate(count, seconds):
     if not seconds or count is None:
         return None
@@ -708,7 +724,8 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     start_time = time.perf_counter()
     first_text_time = None
     response_parts = []
-    event_log = []
+    agent_log_legend = lang("agent_log_legend")
+    event_log = [agent_log_legend]
     json_events = []
     json_blocks = []
     step_count = 0
@@ -732,6 +749,8 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
             errors="replace",
             cwd=agent_work_dir,
         )
+        spinner.write("")
+        spinner.write(agent_log_legend)
 
         for line in process.stdout:
             if not line.strip():
@@ -746,9 +765,23 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
 
             if event_type == "step_start":
                 step_count += 1
+                step_tokens = "/".join(
+                    format_token_count_short(value)
+                    for value in (
+                        prompt_tokens,
+                        output_tokens,
+                        reasoning_tokens,
+                        cache_read_tokens,
+                    )
+                )
                 block = add_opencode_event(
                     event_log,
-                    lang("log_agent_step", elapsed=elapsed, step=step_count),
+                    lang(
+                        "log_agent_step",
+                        elapsed=elapsed,
+                        tokens=step_tokens,
+                        step=step_count,
+                    ),
                     spinner=spinner,
                 )
             elif event_type == "reasoning":
@@ -854,6 +887,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "response": "\n\n".join(response_parts),
         "agent_steps": step_count,
         "event_log": "\n\n".join(event_log),
+        "agent_log_legend": agent_log_legend,
         "agent_work_dir": relative_work_dir,
         "json_event_log": "\n".join(json_events),
         "json_event_blocks": json_blocks,
@@ -925,6 +959,7 @@ def save_report(result, test_file, test_title, prompt):
 
         if result.get("event_log"):
             report.write(lang("report_log"))
+            report.write("\n")
             report.write(result["event_log"] + "\n")
 
         if "error" not in result:
@@ -943,7 +978,7 @@ def save_report(result, test_file, test_title, prompt):
             f"{lang('report_test')}: {test_title}",
             f"{lang('report_test_file')}: {test_file.name}",
         ]
-        log_body = []
+        log_body = [result.get("agent_log_legend", "")]
         for header_block, raw_json in result.get("json_event_blocks", []):
             if header_block:
                 log_body.append(header_block)
@@ -952,7 +987,7 @@ def save_report(result, test_file, test_title, prompt):
             "\n".join(log_head)
             + "\n\n"
             + lang("report_log").strip()
-            + "\n"
+            + "\n\n"
             + "\n".join(log_body)
             + "\n",
             encoding="utf-8",
