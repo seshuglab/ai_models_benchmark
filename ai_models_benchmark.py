@@ -229,6 +229,8 @@ def metric_lines(result):
             [
                 f"{lang('cache_tokens')}: "
                 f"{format_count(result.get('cache_read_tokens'))}",
+                f"{lang('cache_write_tokens')}: "
+                f"{format_count(result.get('cache_write_tokens'))}",
                 f"{lang('total_tokens')}: "
                 f"{format_count(result.get('total_tokens'))}",
                 f"{lang('agent_steps')}: "
@@ -733,6 +735,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     output_tokens = None
     reasoning_tokens = None
     cache_read_tokens = None
+    cache_write_tokens = None
     total_tokens = None
     process = None
     return_code = None
@@ -833,6 +836,10 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                     cache_read_tokens = (cache_read_tokens or 0) + (
                         cache.get("read") or 0
                     )
+                if "write" in cache:
+                    cache_write_tokens = (cache_write_tokens or 0) + (
+                        cache.get("write") or 0
+                    )
             elif event_type == "error":
                 error = event.get("error")
                 if not isinstance(error, str):
@@ -883,6 +890,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "total_tokens": total_tokens,
         "reasoning_tokens": reasoning_tokens,
         "cache_read_tokens": cache_read_tokens,
+        "cache_write_tokens": cache_write_tokens,
         "load_seconds": None,
         "response": "\n\n".join(response_parts),
         "agent_steps": step_count,

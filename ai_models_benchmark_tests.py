@@ -807,6 +807,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("Сгенерировано токенов: 4", report)
         self.assertIn("Токенов размышления: 2", report)
         self.assertIn("Токенов из кэша: 3", report)
+        self.assertIn("Токенов записано в кэш: недоступно", report)
         self.assertIn("Всего токенов: 19", report)
         self.assertIn("Шагов агента: 1", report)
         self.assertIn("[0](0/0/0/0)[АГЕНТ] Шаг 1", report)
@@ -856,7 +857,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                     "output": 0,
                     "reasoning": 0,
                     "total": 0,
-                    "cache": {"read": 0},
+                    "cache": {"read": 0, "write": 0},
                 },
                 "0",
                 "0.00",
@@ -885,6 +886,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                     "Сгенерировано токенов",
                     "Токенов размышления",
                     "Токенов из кэша",
+                    "Токенов записано в кэш",
                     "Всего токенов",
                 ):
                     self.assertIn(f"{label}: {expected_count}", report)
@@ -946,7 +948,11 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                 {"type": "text", "text": "Ответ"},
                 {
                     "type": "step_finish",
-                    "tokens": {"input": 1, "output": 2},
+                    "tokens": {
+                        "input": 1,
+                        "output": 2,
+                        "cache": {"read": 3, "write": 5},
+                    },
                 },
             ]
         )
@@ -1004,6 +1010,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
             lines[answer_index + 2], '{"type": "text", "text": "Ответ"}'
         )
         self.assertEqual(content.count("Формат шага:"), 1)
+        self.assertIn('"write": 5', content)
         self.assertIn('{"type": "step_finish"', content)
         languages.set_language("ru")
 
@@ -1236,7 +1243,8 @@ class PrintResultTests(unittest.TestCase):
             "first_token_seconds": 2, "total_seconds": 10,
             "tokens_per_second": 5, "prompt_tokens": 20,
             "tokens_generated": 50, "reasoning_tokens": 3,
-            "cache_read_tokens": 40, "total_tokens": 113,
+            "cache_read_tokens": 40, "cache_write_tokens": 60,
+            "total_tokens": 113,
             "agent_steps": 2,
         }
 
@@ -1247,6 +1255,16 @@ class PrintResultTests(unittest.TestCase):
             "Эффективная скорость агента: 5.00 токен/сек"
         )
         spinner.write.assert_any_call("Входных токенов без кэша: 20")
+        spinner.write.assert_any_call("Токенов записано в кэш: 60")
+        written = [item.args[0] for item in spinner.write.call_args_list]
+        self.assertLess(
+            written.index("Токенов из кэша: 40"),
+            written.index("Токенов записано в кэш: 60"),
+        )
+        self.assertLess(
+            written.index("Токенов записано в кэш: 60"),
+            written.index("Всего токенов: 113"),
+        )
 
     def test_ollama_keeps_generation_metric_labels(self):
         spinner = Mock()
@@ -1586,6 +1604,7 @@ class OpencodeRunTests(unittest.TestCase):
         self.assertEqual(result["tokens_generated"], 4)
         self.assertEqual(result["reasoning_tokens"], 2)
         self.assertEqual(result["cache_read_tokens"], 3)
+        self.assertIsNone(result["cache_write_tokens"])
         self.assertEqual(result["total_tokens"], 19)
         self.assertEqual(result["response"], "Частичный ответ")
         self.assertEqual(result["json_event_blocks"][-1], (None, "{broken"))
@@ -1601,22 +1620,22 @@ class OpencodeRunTests(unittest.TestCase):
                 {
                     "type": "step_finish",
                     "tokens": {
-                        "input": 1000,
-                        "output": 1200,
-                        "reasoning": 400,
-                        "total": 2600,
-                        "cache": {"read": 18000},
+                        "input": 3,
+                        "output": 124,
+                        "reasoning": 89,
+                        "total": 6825,
+                        "cache": {"read": 0, "write": 6609},
                     },
                 },
                 {"type": "step_start"},
                 {
                     "type": "step_finish",
                     "tokens": {
-                        "input": 53,
-                        "output": 800,
-                        "reasoning": 600,
-                        "total": 1453,
-                        "cache": {"read": 72500},
+                        "input": 3,
+                        "output": 18,
+                        "reasoning": 0,
+                        "total": 6965,
+                        "cache": {"read": 6609, "write": 335},
                     },
                 },
             ]
@@ -1649,12 +1668,21 @@ class OpencodeRunTests(unittest.TestCase):
                 )
 
         self.assertIn("[0](0/0/0/0)[АГЕНТ] Шаг 1", result["event_log"])
-        self.assertIn("[1](1K/1.2K/400/18K)[АГЕНТ] Шаг 2", result["event_log"])
-        self.assertEqual(result["prompt_tokens"], 1053)
-        self.assertEqual(result["tokens_generated"], 2000)
-        self.assertEqual(result["reasoning_tokens"], 1000)
-        self.assertEqual(result["cache_read_tokens"], 90500)
-        self.assertEqual(result["total_tokens"], 4053)
+        self.assertIn("[1](3/124/89/0)[АГЕНТ] Шаг 2", result["event_log"])
+        self.assertEqual(result["prompt_tokens"], 6)
+        self.assertEqual(result["tokens_generated"], 142)
+        self.assertEqual(result["reasoning_tokens"], 89)
+        self.assertEqual(result["cache_read_tokens"], 6609)
+        self.assertEqual(result["cache_write_tokens"], 6944)
+        self.assertEqual(result["total_tokens"], 13790)
+        self.assertEqual(
+            result["prompt_tokens"]
+            + result["tokens_generated"]
+            + result["reasoning_tokens"]
+            + result["cache_read_tokens"]
+            + result["cache_write_tokens"],
+            result["total_tokens"],
+        )
 
 
 class LanguageTableTests(unittest.TestCase):
@@ -2268,6 +2296,7 @@ class LocalizationCompletenessTests(unittest.TestCase):
                     "tokens_generated": 5,
                     "reasoning_tokens": 2,
                     "cache_read_tokens": 1,
+                    "cache_write_tokens": 2,
                     "total_tokens": 10,
                     "agent_steps": 1,
                 },
@@ -2278,6 +2307,7 @@ class LocalizationCompletenessTests(unittest.TestCase):
                         "Входных токенов без кэша",
                         "Токенов размышления",
                         "Токенов из кэша",
+                        "Токенов записано в кэш",
                         "Всего токенов",
                         "Шагов агента",
                     ],
@@ -2287,6 +2317,7 @@ class LocalizationCompletenessTests(unittest.TestCase):
                         "Input tokens without cache",
                         "Reasoning tokens",
                         "Cache tokens",
+                        "Cache write tokens",
                         "Total tokens",
                         "Agent steps",
                     ],
@@ -2360,6 +2391,7 @@ class LocalizationCompletenessTests(unittest.TestCase):
             "Input tokens without cache",
             "Reasoning tokens",
             "Cache tokens",
+            "Cache write tokens",
             "Total tokens",
             "Agent steps",
             "[AGENT] Step 1",
