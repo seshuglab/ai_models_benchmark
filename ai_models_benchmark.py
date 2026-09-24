@@ -177,6 +177,13 @@ def format_number(value):
     return f"{value:.2f}"
 
 
+def format_cost(value):
+    if value is None:
+        return lang("unavailable_value")
+    formatted = f"{value:.8f}".rstrip("0").rstrip(".")
+    return f"${formatted}"
+
+
 def format_count(value):
     return lang("unavailable_value") if value is None else str(value)
 
@@ -233,6 +240,8 @@ def metric_lines(result):
                 f"{format_count(result.get('cache_write_tokens'))}",
                 f"{lang('total_tokens')}: "
                 f"{format_count(result.get('total_tokens'))}",
+                f"{lang('estimated_cost')}: "
+                f"{format_cost(result.get('cost_usd'))}",
                 f"{lang('agent_steps')}: "
                 f"{format_count(result.get('agent_steps'))}",
             ]
@@ -679,6 +688,11 @@ def opencode_tokens(event):
     return event.get("tokens") or part.get("tokens") or {}
 
 
+def opencode_cost(event):
+    part = event.get("part") or {}
+    return part.get("cost")
+
+
 def clean_block(text):
     lines = []
     previous_empty = False
@@ -737,6 +751,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
     cache_read_tokens = None
     cache_write_tokens = None
     total_tokens = None
+    cost_usd = None
     process = None
     return_code = None
     run_error = None
@@ -840,6 +855,9 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
                     cache_write_tokens = (cache_write_tokens or 0) + (
                         cache.get("write") or 0
                     )
+                cost = opencode_cost(event)
+                if cost is not None:
+                    cost_usd = (cost_usd or 0) + cost
             elif event_type == "error":
                 error = event.get("error")
                 if not isinstance(error, str):
@@ -891,6 +909,7 @@ def run_opencode_cli_test(provider, model, prompt, test_file, spinner):
         "reasoning_tokens": reasoning_tokens,
         "cache_read_tokens": cache_read_tokens,
         "cache_write_tokens": cache_write_tokens,
+        "cost_usd": cost_usd,
         "load_seconds": None,
         "response": "\n\n".join(response_parts),
         "agent_steps": step_count,

@@ -809,6 +809,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
         self.assertIn("Токенов из кэша: 3", report)
         self.assertIn("Токенов записано в кэш: недоступно", report)
         self.assertIn("Всего токенов: 19", report)
+        self.assertIn("Расчётная стоимость: недоступно", report)
         self.assertIn("Шагов агента: 1", report)
         self.assertIn("[0](0/0/0/0)[АГЕНТ] Шаг 1", report)
         self.assertIn("Формат шага: [время](I/O/R/C)[АГЕНТ] Шаг N", report)
@@ -832,6 +833,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                         "total": 19,
                         "cache": {"read": 3},
                     },
+                    "part": {"cost": 0.003},
                 },
             ],
             return_code=7,
@@ -845,6 +847,7 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
 
         self.assertIn("Входных токенов без кэша: 10", report)
         self.assertIn("Сгенерировано токенов: 4", report)
+        self.assertIn("Расчётная стоимость: $0.003", report)
         self.assertIn("Шагов агента: 1", report)
         self.assertIn("# ОШИБКА:\nAgent Test завершился с кодом 7", report)
         self.assertIn("[1][ОТВЕТ]\nЧастичный ответ", report)
@@ -861,14 +864,16 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                 },
                 "0",
                 "0.00",
+                "$0",
             ),
-            ({}, "недоступно", "недоступно"),
+            ({}, "недоступно", "недоступно", "недоступно"),
         ]
-        for tokens, expected_count, expected_speed in cases:
+        for tokens, expected_count, expected_speed, expected_cost in cases:
             with self.subTest(tokens=tokens):
-                process = FakeProcess(
-                    [{"type": "step_finish", "tokens": tokens}]
-                )
+                event = {"type": "step_finish", "tokens": tokens}
+                if expected_cost == "$0":
+                    event["part"] = {"cost": 0}
+                process = FakeProcess([event])
                 report = self.run_isolated(
                     "2",
                     patch.object(
@@ -880,6 +885,9 @@ class ProviderFlowIntegrationTests(unittest.TestCase):
                 self.assertIn(
                     f"Эффективная скорость агента: {expected_speed} токен/сек",
                     report,
+                )
+                self.assertIn(
+                    f"Расчётная стоимость: {expected_cost}", report
                 )
                 for label in (
                     "Входных токенов без кэша",
@@ -1244,7 +1252,7 @@ class PrintResultTests(unittest.TestCase):
             "tokens_per_second": 5, "prompt_tokens": 20,
             "tokens_generated": 50, "reasoning_tokens": 3,
             "cache_read_tokens": 40, "cache_write_tokens": 60,
-            "total_tokens": 113,
+            "total_tokens": 113, "cost_usd": 0.00677218,
             "agent_steps": 2,
         }
 
@@ -1256,6 +1264,7 @@ class PrintResultTests(unittest.TestCase):
         )
         spinner.write.assert_any_call("Входных токенов без кэша: 20")
         spinner.write.assert_any_call("Токенов записано в кэш: 60")
+        spinner.write.assert_any_call("Расчётная стоимость: $0.00677218")
         written = [item.args[0] for item in spinner.write.call_args_list]
         self.assertLess(
             written.index("Токенов из кэша: 40"),
@@ -1264,6 +1273,10 @@ class PrintResultTests(unittest.TestCase):
         self.assertLess(
             written.index("Токенов записано в кэш: 60"),
             written.index("Всего токенов: 113"),
+        )
+        self.assertLess(
+            written.index("Всего токенов: 113"),
+            written.index("Расчётная стоимость: $0.00677218"),
         )
 
     def test_ollama_keeps_generation_metric_labels(self):
@@ -1484,6 +1497,32 @@ class OpencodeTokensTests(unittest.TestCase):
             with self.subTest(event=event):
                 self.assertEqual(benchmark.opencode_tokens(event), {})
 
+    def test_cost_is_read_from_part(self):
+        event = {
+            "part": {"cost": 0.0030689, "tokens": {"total": 1}},
+        }
+        self.assertEqual(benchmark.opencode_cost(event), 0.0030689)
+
+    def test_missing_cost_returns_none(self):
+        self.assertIsNone(benchmark.opencode_cost({"part": {}}))
+
+
+class FormatCostTests(unittest.TestCase):
+    def setUp(self):
+        languages.set_language("ru")
+
+    def test_formats_cost_without_losing_precision(self):
+        cases = [
+            (None, "недоступно"),
+            (0, "$0"),
+            (0.00677218, "$0.00677218"),
+            (0.01, "$0.01"),
+            (1.25, "$1.25"),
+        ]
+        for value, expected in cases:
+            with self.subTest(value=value):
+                self.assertEqual(benchmark.format_cost(value), expected)
+
 
 class AddOpencodeEventTests(unittest.TestCase):
     def test_header_only_without_content(self):
@@ -1626,6 +1665,7 @@ class OpencodeRunTests(unittest.TestCase):
                         "total": 6825,
                         "cache": {"read": 0, "write": 6609},
                     },
+                    "part": {"cost": 0.0030689},
                 },
                 {"type": "step_start"},
                 {
@@ -1637,6 +1677,7 @@ class OpencodeRunTests(unittest.TestCase):
                         "total": 6965,
                         "cache": {"read": 6609, "write": 335},
                     },
+                    "part": {"cost": 0.0005001},
                 },
             ]
         )
@@ -1675,6 +1716,7 @@ class OpencodeRunTests(unittest.TestCase):
         self.assertEqual(result["cache_read_tokens"], 6609)
         self.assertEqual(result["cache_write_tokens"], 6944)
         self.assertEqual(result["total_tokens"], 13790)
+        self.assertAlmostEqual(result["cost_usd"], 0.003569)
         self.assertEqual(
             result["prompt_tokens"]
             + result["tokens_generated"]
@@ -2298,6 +2340,7 @@ class LocalizationCompletenessTests(unittest.TestCase):
                     "cache_read_tokens": 1,
                     "cache_write_tokens": 2,
                     "total_tokens": 10,
+                    "cost_usd": 0.01,
                     "agent_steps": 1,
                 },
                 {
@@ -2309,6 +2352,7 @@ class LocalizationCompletenessTests(unittest.TestCase):
                         "Токенов из кэша",
                         "Токенов записано в кэш",
                         "Всего токенов",
+                        "Расчётная стоимость",
                         "Шагов агента",
                     ],
                     "en": [
@@ -2319,6 +2363,7 @@ class LocalizationCompletenessTests(unittest.TestCase):
                         "Cache tokens",
                         "Cache write tokens",
                         "Total tokens",
+                        "Estimated cost",
                         "Agent steps",
                     ],
                 },
